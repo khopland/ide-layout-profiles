@@ -2,3 +2,6 @@
 .idea
 .intellijPlatform
 build
+.env
+*.key
+*.pem

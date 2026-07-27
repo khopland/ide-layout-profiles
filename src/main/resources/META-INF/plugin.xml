@@ -1,7 +1,7 @@
-<idea-plugin>
+<idea-plugin url="https://github.com/khopland/ide-layout-profiles">
     <id>io.github.khopland.ide-layout-profiles</id>
     <name>IDE Layout Profiles</name>
-    <vendor>khopland</vendor>
+    <vendor url="https://github.com/khopland">khopland</vendor>
 
     <description><![CDATA[
         Save, update, and recall IntelliJ layout profiles from the keyboard.

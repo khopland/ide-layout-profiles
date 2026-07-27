@@ -8,8 +8,9 @@
 
 - Renamed the plugin and project to **IDE Layout Profiles**.
 - Converted the platform adapters to Kotlin and removed generated scaffold files.
-- added icon.
+- Added the plugin icon.
 - Replaced the Manage Layout Profiles dialog with the settings page.
+- Expanded the README and made it the source for the JetBrains Marketplace description.
 
 ### Added
 
@@ -19,6 +20,8 @@
 - Settings page for renaming, deleting, reordering, and applying profiles.
 - Keymap action that opens the IDE Layout Profiles settings page.
 - Find Action and Search Everywhere names and synonyms for every plugin command.
+- Apache License 2.0 and Marketplace publishing configuration.
+- Create new layout profiles directly from the settings page.
 
 ### Fixed
 

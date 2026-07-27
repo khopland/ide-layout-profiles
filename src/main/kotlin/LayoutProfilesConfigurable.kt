@@ -39,6 +39,7 @@ class LayoutProfilesConfigurable(private val project: Project) : SearchableConfi
         model = listModel
         profileList = list
 
+        val createNew = JButton("Create New")
         val rename = JButton("Rename")
         val delete = JButton("Delete")
         val moveUp = JButton("Move Up")
@@ -47,6 +48,7 @@ class LayoutProfilesConfigurable(private val project: Project) : SearchableConfi
 
         fun updateButtons() {
             val index = list.selectedIndex
+            createNew.isEnabled = listModel.size < LAYOUT_PROFILE_SLOT_COUNT
             rename.isEnabled = index >= 0
             delete.isEnabled = index >= 0
             moveUp.isEnabled = index > 0
@@ -54,6 +56,17 @@ class LayoutProfilesConfigurable(private val project: Project) : SearchableConfi
             applyProfile.isEnabled = index >= 0
         }
 
+        createNew.addActionListener {
+            val name = askForName(
+                project,
+                LayoutProfilesBundle.message("dialog.save.defaultName", listModel.size + 1),
+            ) ?: return@addActionListener
+            apply()
+            val saved = saveNewLayoutProfile(project, name) ?: return@addActionListener
+            reset()
+            list.selectedIndex = saved.number - 1
+            updateButtons()
+        }
         rename.addActionListener {
             val index = list.selectedIndex
             val selected = list.selectedValue ?: return@addActionListener
@@ -109,6 +122,7 @@ class LayoutProfilesConfigurable(private val project: Project) : SearchableConfi
         list.addListSelectionListener { updateButtons() }
 
         val buttons = JPanel(FlowLayout(FlowLayout.LEADING, JBUI.scale(8), 0)).apply {
+            add(createNew)
             add(rename)
             add(delete)
             add(moveUp)
