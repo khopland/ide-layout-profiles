@@ -1,6 +1,6 @@
 import org.jetbrains.intellij.platform.gradle.extensions.intellijPlatform
 
-rootProject.name = "save-screen-state"
+rootProject.name = "ide-layout-profiles"
 
 pluginManagement {
     plugins {

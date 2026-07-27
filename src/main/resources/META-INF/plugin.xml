@@ -1,33 +1,52 @@
-<!-- Plugin Configuration File. Read more: https://plugins.jetbrains.com/docs/intellij/plugin-configuration-file.html -->
 <idea-plugin>
-    <!-- Unique identifier of the plugin. It should be FQN. It cannot be changed between the plugin versions. -->
-    <id>io.github.khopland.save-screen-state</id>
+    <id>io.github.khopland.ide-layout-profiles</id>
+    <name>IDE Layout Profiles</name>
+    <vendor>khopland</vendor>
 
-    <!-- Public plugin name should be written in Title Case.
-     Guidelines: https://plugins.jetbrains.com/docs/marketplace/best-practices-for-listing.html#plugin-name -->
-    <name>Save-screen-state</name>
-
-    <!-- A displayed Vendor name or Organization ID displayed on the Plugins Page. -->
-    <vendor url="https://www.yourcompany.com">YourCompany</vendor>
-
-    <!-- Description of the plugin displayed on the Plugin Page and IDE Plugin Manager.
-         Guidelines: https://plugins.jetbrains.com/docs/marketplace/best-practices-for-listing.html#plugin-description -->
     <description><![CDATA[
-        Enter short description for your plugin here.<br>
-        <em>most HTML tags may be used</em>
+        Save, update, and recall IntelliJ layout profiles from the keyboard.
+        Profiles are shared across projects and include tool windows, the main toolbar,
+        navigation bar, tool-window bars, and status bar widgets.
         ]]></description>
 
-    <!-- Product and plugin compatibility requirements.
-         Read more: https://plugins.jetbrains.com/docs/intellij/plugin-compatibility.html -->
     <depends>com.intellij.modules.platform</depends>
+    <resource-bundle>messages.LayoutProfilesBundle</resource-bundle>
 
-    <resource-bundle>messages.MyMessageBundle</resource-bundle>
-
-    <!-- Extensions defined by the plugin.
-         Read more: https://plugins.jetbrains.com/docs/intellij/plugin-extension-points.html -->
     <extensions defaultExtensionNs="com.intellij">
-        <toolWindow id="MyToolWindow" factoryClass="io.github.khopland.MyToolWindowFactory"
-                    icon="AllIcons.Toolwindows.ToolWindowPalette"/>
+        <notificationGroup id="IDE Layout Profiles" displayType="BALLOON" isLogByDefault="true"/>
     </extensions>
 
+    <actions>
+        <group id="io.github.khopland.ideLayoutProfiles.actions" text="Layout Profiles" popup="true">
+            <add-to-group group-id="WindowMenu" anchor="after" relative-to-action="LayoutsGroup"/>
+
+            <action id="io.github.khopland.ideLayoutProfiles.applySlot1"
+                    class="io.github.khopland.ApplySlot1Action"
+                    text="Apply Slot 1"/>
+            <action id="io.github.khopland.ideLayoutProfiles.applySlot2"
+                    class="io.github.khopland.ApplySlot2Action"
+                    text="Apply Slot 2"/>
+            <action id="io.github.khopland.ideLayoutProfiles.applySlot3"
+                    class="io.github.khopland.ApplySlot3Action"
+                    text="Apply Slot 3"/>
+            <action id="io.github.khopland.ideLayoutProfiles.applySlot4"
+                    class="io.github.khopland.ApplySlot4Action"
+                    text="Apply Slot 4"/>
+            <action id="io.github.khopland.ideLayoutProfiles.applySlot5"
+                    class="io.github.khopland.ApplySlot5Action"
+                    text="Apply Slot 5"/>
+
+            <separator/>
+            <action id="io.github.khopland.ideLayoutProfiles.saveNew"
+                    class="io.github.khopland.SaveNewLayoutProfileAction"
+                    text="Save Current as New Layout Profile"/>
+            <action id="io.github.khopland.ideLayoutProfiles.updateActive"
+                    class="io.github.khopland.UpdateActiveLayoutProfileAction"
+                    text="Update Active Layout Profile"/>
+            <separator/>
+            <action id="io.github.khopland.ideLayoutProfiles.manage"
+                    class="io.github.khopland.ManageLayoutProfilesAction"
+                    text="Manage Layout Profiles…"/>
+        </group>
+    </actions>
 </idea-plugin>
