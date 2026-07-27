@@ -8,6 +8,7 @@
 
 - Renamed the plugin and project to **IDE Layout Profiles**.
 - Converted the platform adapters to Kotlin and removed generated scaffold files.
+- added icon.
 
 ### Added
 
