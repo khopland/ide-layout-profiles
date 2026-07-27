@@ -12,10 +12,15 @@ Each of the five application-wide slots stores:
 
 ## Use
 
-Open **Window → Layout Profiles** to save, apply, update, rename, replace, or clear a slot.
+Open **Window → Layout Profiles** to save, apply, update, or open the profile settings.
+
+Use **Settings → Tools → IDE Layout Profiles** to rename, delete, reorder, or apply saved profiles. Profile order
+determines which profile is assigned to each **Apply Slot 1–5** action.
 
 Assign shortcuts under **Settings → Keymap** by searching for `Layout Profile`. The plugin intentionally provides no
 default shortcuts, so it does not conflict with an existing keymap.
+
+All commands are also available by searching for `Layout Profiles` in **Find Action** or **Search Everywhere → All**.
 
 Layouts are shared across projects. Applying a slot restores available tool windows in the focused project. Toolbar
 visibility and actions, navigation, tool-window bar, status bar, and status-bar widget settings are application-wide

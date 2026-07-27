@@ -6,6 +6,7 @@ import com.intellij.ide.ui.customization.CustomActionsListener
 import com.intellij.ide.ui.customization.CustomActionsSchema
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.keymap.impl.ui.ActionsTreeUtil
+import com.intellij.openapi.options.Configurable
 import com.intellij.openapi.wm.StatusBarWidgetFactory
 import com.intellij.openapi.wm.impl.status.widget.StatusBarWidgetSettings
 import com.intellij.openapi.wm.impl.status.widget.StatusBarWidgetsManager
@@ -18,7 +19,26 @@ class LayoutProfilePlatformTest : BasePlatformTestCase() {
         assertNotNull(actions.getAction("io.github.khopland.ideLayoutProfiles.applySlot1"))
         assertNotNull(actions.getAction("io.github.khopland.ideLayoutProfiles.saveNew"))
         assertNotNull(actions.getAction("io.github.khopland.ideLayoutProfiles.updateActive"))
-        assertNotNull(actions.getAction("io.github.khopland.ideLayoutProfiles.manage"))
+        assertNotNull(actions.getAction("io.github.khopland.ideLayoutProfiles.openSettings"))
+        assertNull(actions.getAction("io.github.khopland.ideLayoutProfiles.manage"))
+        assertTrue(
+            actions.getAction("io.github.khopland.ideLayoutProfiles.applySlot1")
+                .templatePresentation.text
+                .startsWith("Layout Profiles:"),
+        )
+    }
+
+    fun testSettingsPageIsRegisteredAndBuilds() {
+        val configurable = requireNotNull(
+            Configurable.PROJECT_CONFIGURABLE
+                .getExtensions(project)
+                .first { it.id == LAYOUT_PROFILE_SETTINGS_ID }
+                .createConfigurable(),
+        )
+
+        assertTrue(configurable is LayoutProfilesConfigurable)
+        assertNotNull(configurable.createComponent())
+        configurable.disposeUIResources()
     }
 
     fun testSaveAndApplyRoundTrip() {

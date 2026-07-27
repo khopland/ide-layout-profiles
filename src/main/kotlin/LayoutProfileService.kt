@@ -8,6 +8,7 @@ import com.intellij.openapi.components.SettingsCategory
 import com.intellij.openapi.components.State
 import com.intellij.openapi.components.Storage
 import com.intellij.openapi.project.Project
+import java.util.UUID
 
 internal const val LAYOUT_PROFILE_SLOT_COUNT = 5
 
@@ -16,6 +17,11 @@ internal enum class ApplyResult {
     EMPTY,
     MISSING_LAYOUT,
 }
+
+internal data class LayoutProfileUpdate(
+    val id: String,
+    val displayName: String,
+)
 
 @Service(Service.Level.APP)
 @State(
@@ -35,11 +41,23 @@ internal class LayoutProfileService : PersistentStateComponent<LayoutProfilesSta
             .distinctBy { it.number }
             .sortedBy { it.number }
             .toMutableList()
+        val usedIds = mutableSetOf<String>()
+        state.slots.forEach {
+            if (it.id.isBlank() || !usedIds.add(it.id)) {
+                it.id = UUID.randomUUID().toString()
+                usedIds.add(it.id)
+            }
+            if (it.nativeLayoutName.isBlank()) {
+                it.nativeLayoutName = legacyLayoutName(it.number)
+            }
+        }
         if (state.activeSlot !in state.slots.map { it.number }) state.activeSlot = 0
         savedState = state
     }
 
     fun slot(number: Int): LayoutProfile? = savedState.slots.firstOrNull { it.number == number }
+
+    fun profiles(): List<LayoutProfile> = savedState.slots.sortedBy { it.number }
 
     fun firstEmptySlot(): Int? = (1..LAYOUT_PROFILE_SLOT_COUNT).firstOrNull { slot(it) == null }
 
@@ -47,8 +65,13 @@ internal class LayoutProfileService : PersistentStateComponent<LayoutProfilesSta
 
     fun save(project: Project, number: Int, displayName: String) {
         require(number in 1..LAYOUT_PROFILE_SLOT_COUNT)
-        val savedSlot = LayoutProfile.capture(project, number, displayName.trim())
-        PlatformLayoutAdapter.save(project, layoutName(number))
+        val current = slot(number)
+        val id = current?.id ?: UUID.randomUUID().toString()
+        val savedSlot = LayoutProfile.capture(project, number, displayName.trim()).apply {
+            this.id = id
+            nativeLayoutName = current?.nativeLayoutName ?: layoutName(id)
+        }
+        PlatformLayoutAdapter.save(project, savedSlot.nativeLayoutName)
         savedState.slots.removeAll { it.number == number }
         savedState.slots.add(savedSlot)
         savedState.slots.sortBy { it.number }
@@ -63,24 +86,46 @@ internal class LayoutProfileService : PersistentStateComponent<LayoutProfilesSta
 
     fun apply(project: Project, number: Int): ApplyResult {
         val savedSlot = slot(number) ?: return ApplyResult.EMPTY
-        if (!PlatformLayoutAdapter.apply(project, layoutName(number))) return ApplyResult.MISSING_LAYOUT
+        if (!PlatformLayoutAdapter.apply(project, savedSlot.nativeLayoutName)) return ApplyResult.MISSING_LAYOUT
 
         savedState.activeSlot = number
         savedSlot.applyChrome(project)
         return ApplyResult.APPLIED
     }
 
-    fun rename(number: Int, displayName: String) {
-        slot(number)?.displayName = displayName.trim()
-    }
-
     fun clear(number: Int) {
-        PlatformLayoutAdapter.delete(layoutName(number))
+        slot(number)?.let { PlatformLayoutAdapter.delete(it.nativeLayoutName) }
         savedState.slots.removeAll { it.number == number }
         if (savedState.activeSlot == number) savedState.activeSlot = 0
     }
 
-    private fun layoutName(number: Int): String = "[IDE Layout Profiles] Slot $number"
+    fun updateProfiles(updates: List<LayoutProfileUpdate>) {
+        require(updates.size <= LAYOUT_PROFILE_SLOT_COUNT)
+        require(updates.all { it.displayName.isNotBlank() })
+        require(updates.map { it.id }.distinct().size == updates.size)
+
+        val existing = savedState.slots.associateBy { it.id }
+        require(updates.all { it.id in existing })
+        val activeId = activeSlot()?.id
+        val retainedIds = updates.mapTo(mutableSetOf(), LayoutProfileUpdate::id)
+        savedState.slots
+            .filterNot { it.id in retainedIds }
+            .forEach { PlatformLayoutAdapter.delete(it.nativeLayoutName) }
+        savedState.slots = updates.mapIndexed { index, update ->
+            existing.getValue(update.id).apply {
+                number = index + 1
+                displayName = update.displayName.trim()
+            }
+        }.toMutableList()
+        savedState.activeSlot = savedState.slots
+            .firstOrNull { it.id == activeId }
+            ?.number
+            ?: 0
+    }
+
+    private fun layoutName(id: String): String = "[IDE Layout Profiles] Profile $id"
+
+    private fun legacyLayoutName(number: Int): String = "[IDE Layout Profiles] Slot $number"
 }
 
 internal class LayoutProfilesState {
@@ -89,6 +134,8 @@ internal class LayoutProfilesState {
 }
 
 internal class LayoutProfile {
+    var id: String = ""
+    var nativeLayoutName: String = ""
     var number: Int = 0
     var displayName: String = ""
     var showMainToolbar: Boolean = true
