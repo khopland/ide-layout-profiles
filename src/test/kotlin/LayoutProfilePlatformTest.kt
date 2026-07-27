@@ -11,6 +11,9 @@ import com.intellij.openapi.wm.StatusBarWidgetFactory
 import com.intellij.openapi.wm.impl.status.widget.StatusBarWidgetSettings
 import com.intellij.openapi.wm.impl.status.widget.StatusBarWidgetsManager
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
+import java.awt.Component
+import java.awt.Container
+import javax.swing.JButton
 
 class LayoutProfilePlatformTest : BasePlatformTestCase() {
     fun testPluginActionsAreRegistered() {
@@ -37,7 +40,12 @@ class LayoutProfilePlatformTest : BasePlatformTestCase() {
         )
 
         assertTrue(configurable is LayoutProfilesConfigurable)
-        assertNotNull(configurable.createComponent())
+        val component = requireNotNull(configurable.createComponent())
+        assertTrue(
+            component.descendants()
+                .filterIsInstance<JButton>()
+                .any { it.text == "Create New" },
+        )
         configurable.disposeUIResources()
     }
 
@@ -145,5 +153,12 @@ class LayoutProfilePlatformTest : BasePlatformTestCase() {
         schema.initActionIcons()
         schema.setCustomizationSchemaForCurrentProjects()
         CustomActionsListener.fireSchemaChanged()
+    }
+
+    private fun Container.descendants(): Sequence<Component> = sequence {
+        components.forEach {
+            yield(it)
+            if (it is Container) yieldAll(it.descendants())
+        }
     }
 }

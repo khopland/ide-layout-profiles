@@ -44,16 +44,7 @@ class ApplySlot5Action : ApplySlotAction(5)
 
 class SaveNewLayoutProfileAction : DumbAwareAction() {
     override fun actionPerformed(event: AnActionEvent) {
-        val project = event.project ?: return
-        val slot = service().firstEmptySlot()
-        if (slot == null) {
-            notify(project, "notification.full", warning = true)
-            return
-        }
-
-        val name = askForName(project, LayoutProfilesBundle.message("dialog.save.defaultName", slot)) ?: return
-        service().save(project, slot, name)
-        notify(project, "notification.saved", name, slot)
+        saveNewLayoutProfile(event.project ?: return)
     }
 
     override fun update(event: AnActionEvent) {
@@ -101,7 +92,22 @@ class OpenLayoutProfileSettingsAction : DumbAwareAction() {
 private fun service(): LayoutProfileService =
     ApplicationManager.getApplication().getService(LayoutProfileService::class.java)
 
-private fun askForName(project: Project, initialValue: String): String? =
+internal fun saveNewLayoutProfile(project: Project, name: String? = null): LayoutProfile? {
+    val slot = service().firstEmptySlot()
+    if (slot == null) {
+        notify(project, "notification.full", warning = true)
+        return null
+    }
+    val profileName = name ?: askForName(
+        project,
+        LayoutProfilesBundle.message("dialog.save.defaultName", slot),
+    ) ?: return null
+    service().save(project, slot, profileName)
+    notify(project, "notification.saved", profileName, slot)
+    return service().slot(slot)
+}
+
+internal fun askForName(project: Project, initialValue: String): String? =
     Messages.showInputDialog(
         project,
         LayoutProfilesBundle.message("dialog.save.prompt"),
