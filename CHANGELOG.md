@@ -1,8 +1,12 @@
 <!-- Keep a Changelog guide -> https://keepachangelog.com -->
 
 # IDE Layout Profiles Changelog
-
 ## [Unreleased]
+### Changed
+### Added
+### Fixed
+
+## [0.1.1]
 ### Changed
 
 - Stopped capturing customized toolbar actions and individual status-bar widgets because IntelliJ exposes only internal APIs for those settings.
