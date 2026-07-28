@@ -23,11 +23,17 @@
                              bundle="messages.LayoutProfilesBundle"
                              key="settings.displayName"
                              instance="io.github.khopland.LayoutProfilesConfigurable"/>
+        <postStartupActivity implementation="io.github.khopland.ProfileActionsStartupActivity"/>
     </extensions>
 
     <actions>
         <group id="io.github.khopland.ideLayoutProfiles.actions" popup="true">
             <add-to-group group-id="WindowMenu" anchor="after" relative-to-action="LayoutsGroup"/>
+
+            <group id="io.github.khopland.ideLayoutProfiles.applyProfile"
+                   class="io.github.khopland.ApplyLayoutProfileGroup"
+                   popup="true"/>
+            <separator/>
 
             <action id="io.github.khopland.ideLayoutProfiles.applySlot1"
                     class="io.github.khopland.ApplySlot1Action">

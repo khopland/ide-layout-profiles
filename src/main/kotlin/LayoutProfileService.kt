@@ -60,6 +60,8 @@ internal class LayoutProfileService : PersistentStateComponent<LayoutProfilesSta
 
     fun profiles(): List<LayoutProfile> = savedState.slots.sortedBy { it.number }
 
+    fun profile(id: String): LayoutProfile? = savedState.slots.firstOrNull { it.id == id }
+
     fun nextProfileNumber(): Int = savedState.slots.size + 1
 
     fun activeSlot(): LayoutProfile? = slot(savedState.activeSlot)
@@ -81,8 +83,13 @@ internal class LayoutProfileService : PersistentStateComponent<LayoutProfilesSta
 
     fun updateActive(project: Project): LayoutProfile? {
         val current = activeSlot() ?: return null
+        return update(project, current.id)
+    }
+
+    fun update(project: Project, id: String): LayoutProfile? {
+        val current = profile(id) ?: return null
         save(project, current.number, current.displayName)
-        return slot(current.number)
+        return profile(id)
     }
 
     fun apply(project: Project, number: Int): ApplyResult {

@@ -2,6 +2,8 @@ package io.github.khopland
 
 import com.intellij.ide.ui.UISettings
 import com.intellij.openapi.actionSystem.ActionManager
+import com.intellij.openapi.actionSystem.ActionGroup
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.options.Configurable
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import java.awt.Component
@@ -17,6 +19,9 @@ class LayoutProfilePlatformTest : BasePlatformTestCase() {
         assertNotNull(actions.getAction("io.github.khopland.ideLayoutProfiles.saveNew"))
         assertNotNull(actions.getAction("io.github.khopland.ideLayoutProfiles.updateActive"))
         assertNotNull(actions.getAction("io.github.khopland.ideLayoutProfiles.openSettings"))
+        assertTrue(
+            actions.getAction("io.github.khopland.ideLayoutProfiles.applyProfile") is ActionGroup,
+        )
         @Suppress("UnresolvedPluginConfigReference")
         assertNull(actions.getAction("io.github.khopland.ideLayoutProfiles.manage"))
         assertTrue(
@@ -41,7 +46,87 @@ class LayoutProfilePlatformTest : BasePlatformTestCase() {
                 .filterIsInstance<JButton>()
                 .any { it.text == "Create New" },
         )
+        assertTrue(
+            component.descendants()
+                .filterIsInstance<JButton>()
+                .any { it.text == "Update from Current" },
+        )
         configurable.disposeUIResources()
+    }
+
+    fun testApplyProfileGroupListsEveryProfileAndMarksTheActiveOne() {
+        val service = ApplicationManager.getApplication().getService(LayoutProfileService::class.java)
+
+        try {
+            service.loadState(LayoutProfilesState().apply {
+                activeSlot = 11
+                slots = (1..11).map { number ->
+                    LayoutProfile().apply {
+                        id = "profile-$number"
+                        this.number = number
+                        displayName = "Profile $number"
+                    }
+                }.toMutableList()
+            })
+
+            val group = ActionManager.getInstance()
+                .getAction("io.github.khopland.ideLayoutProfiles.applyProfile") as ActionGroup
+            val children = group.getChildren(null)
+
+            assertEquals(11, children.size)
+            assertEquals("Profile 1", children.first().templatePresentation.text)
+            assertEquals("✓ Profile 11", children.last().templatePresentation.text)
+        } finally {
+            service.loadState(LayoutProfilesState())
+            syncProfileActions()
+        }
+    }
+
+    fun testProfileActionKeepsItsUuidAcrossRenameAndReorder() {
+        val service = ApplicationManager.getApplication().getService(LayoutProfileService::class.java)
+        val actions = ActionManager.getInstance()
+
+        try {
+            service.loadState(LayoutProfilesState().apply {
+                slots = mutableListOf(
+                    LayoutProfile().apply {
+                        id = "work"
+                        number = 1
+                        displayName = "Work"
+                    },
+                    LayoutProfile().apply {
+                        id = "focus"
+                        number = 2
+                        displayName = "Focus"
+                    },
+                )
+            })
+            syncProfileActions()
+            val actionId = profileActionId("focus")
+            val action = actions.getAction(actionId)
+
+            service.updateProfiles(
+                listOf(
+                    LayoutProfileUpdate("focus", "Deep Focus"),
+                    LayoutProfileUpdate("work", "Work"),
+                ),
+            )
+            syncProfileActions()
+
+            assertSame(action, actions.getAction(actionId))
+            assertEquals(
+                "Layout Profiles: Apply Profile: Deep Focus",
+                action.templatePresentation.text,
+            )
+            assertNotNull(actions.getAction(slotActionId(2)))
+
+            service.updateProfiles(listOf(LayoutProfileUpdate("work", "Work")))
+            syncProfileActions()
+            assertNull(actions.getAction(actionId))
+        } finally {
+            service.loadState(LayoutProfilesState())
+            syncProfileActions()
+        }
     }
 
     fun testSaveAndApplyRoundTrip() {
@@ -70,6 +155,29 @@ class LayoutProfilePlatformTest : BasePlatformTestCase() {
             assertEquals("Focus", service.activeSlot()?.displayName)
         } finally {
             service.clear(1)
+            original.applyChrome()
+        }
+    }
+
+    fun testAnyProfileCanBeUpdatedById() {
+        val ui = UISettings.getInstance()
+        val original = LayoutProfile.capture(0, "Original")
+        val service = LayoutProfileService()
+
+        try {
+            ui.showStatusBar = true
+            service.save(project, 1, "First")
+            val firstId = service.slot(1)!!.id
+            service.save(project, 2, "Second")
+
+            ui.showStatusBar = false
+            assertEquals("First", service.update(project, firstId)?.displayName)
+
+            ui.showStatusBar = true
+            assertEquals(ApplyResult.APPLIED, service.apply(project, 1))
+            assertFalse(ui.showStatusBar)
+        } finally {
+            while (service.profiles().isNotEmpty()) service.clear(1)
             original.applyChrome()
         }
     }

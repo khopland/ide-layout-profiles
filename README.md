@@ -5,7 +5,7 @@ Save and switch between complete IntelliJ IDEA layouts without rebuilding your w
 <!-- Plugin description -->
 IDE Layout Profiles saves the parts of your IntelliJ IDEA workspace that normally take several clicks to restore.
 Create as many application-wide profiles as you need. The first ten are assigned to stable keybinding actions;
-every profile can be applied from the settings page.
+every profile can be applied by name from the Window menu or settings page.
 
 Each profile stores:
 
@@ -22,14 +22,16 @@ and the application-wide toolbar and status-bar settings in every open project w
 
 1. Arrange IntelliJ IDEA the way you want.
 2. Open **Window | Layout Profiles | Save Current as New**.
-3. Assign shortcuts under **Settings | Keymap** by searching for `Layout Profiles`.
+3. Assign a profile-specific shortcut under **Settings | Keymap** by searching for its name or `Layout Profiles`.
 4. Apply or update a profile from its shortcut, **Window | Layout Profiles**, **Find Action**, or
    **Search Everywhere | All**.
 
-Use **Settings → Tools → IDE Layout Profiles** to create, rename, delete, reorder, or apply saved profiles. The first
-ten profiles are assigned to the **Apply Slot 1–10** actions.
+Use **Window → Layout Profiles → Apply Profile** to apply any saved profile by name. Use
+**Settings → Tools → IDE Layout Profiles** to create, rename, delete, reorder, apply, or update saved profiles. The
+first ten profiles are assigned to the **Apply Slot 1–10** actions.
 
-The plugin provides no default shortcuts, so it will not conflict with your existing keymap.
+Profile-specific shortcuts survive profile renaming and reordering. The plugin provides no default shortcuts, so it
+will not conflict with your existing keymap.
 <!-- Plugin description end -->
 
 ## Compatibility

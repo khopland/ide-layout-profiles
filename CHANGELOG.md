@@ -4,6 +4,12 @@
 ## [Unreleased]
 ### Changed
 ### Added
+
+- Added an **Apply Profile** submenu that lists every saved profile and marks the active one.
+- Added **Update from Current** for the selected profile in Settings.
+- Added stable profile-specific Keymap actions that survive profile renaming and reordering.
+- Settings now shows shortcuts assigned to profile actions and the first ten slot aliases.
+
 ### Fixed
 
 ## [0.1.1]

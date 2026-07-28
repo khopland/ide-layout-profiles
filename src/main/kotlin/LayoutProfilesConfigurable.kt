@@ -1,6 +1,8 @@
 package io.github.khopland
 
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.keymap.KeymapManager
+import com.intellij.openapi.keymap.KeymapUtil
 import com.intellij.openapi.options.SearchableConfigurable
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
@@ -31,6 +33,7 @@ class LayoutProfilesConfigurable(private val project: Project) : SearchableConfi
     override fun getDisplayName(): String = "IDE Layout Profiles"
 
     override fun createComponent(): JComponent {
+        syncProfileActions()
         val listModel = DefaultListModel<ProfileDraft>()
         val list = JBList(listModel).apply {
             selectionMode = ListSelectionModel.SINGLE_SELECTION
@@ -46,6 +49,7 @@ class LayoutProfilesConfigurable(private val project: Project) : SearchableConfi
         val moveUp = JButton("Move Up")
         val moveDown = JButton("Move Down")
         val applyProfile = JButton("Apply Profile")
+        val updateProfile = JButton("Update from Current")
 
         fun updateButtons() {
             val index = list.selectedIndex
@@ -54,6 +58,7 @@ class LayoutProfilesConfigurable(private val project: Project) : SearchableConfi
             moveUp.isEnabled = index > 0
             moveDown.isEnabled = index in 0 until listModel.size - 1
             applyProfile.isEnabled = index >= 0
+            updateProfile.isEnabled = index >= 0
         }
 
         createNew.addActionListener {
@@ -118,6 +123,14 @@ class LayoutProfilesConfigurable(private val project: Project) : SearchableConfi
                 ApplyResult.EMPTY -> notify(project, "notification.empty", profile.number, warning = true)
                 ApplyResult.MISSING_LAYOUT -> notify(project, "notification.missing", profile.number, warning = true)
             }
+            list.repaint()
+        }
+        updateProfile.addActionListener {
+            val selected = list.selectedValue ?: return@addActionListener
+            apply()
+            val updated = service().update(project, selected.id) ?: return@addActionListener
+            notify(project, "notification.updated", updated.displayName)
+            list.repaint()
         }
         list.addListSelectionListener { updateButtons() }
 
@@ -128,6 +141,7 @@ class LayoutProfilesConfigurable(private val project: Project) : SearchableConfi
             add(moveUp)
             add(moveDown)
             add(applyProfile)
+            add(updateProfile)
         }
         return JPanel(BorderLayout(0, JBUI.scale(8))).apply {
             border = JBUI.Borders.empty(8)
@@ -146,6 +160,7 @@ class LayoutProfilesConfigurable(private val project: Project) : SearchableConfi
 
     override fun apply() {
         service().updateProfiles(drafts().map { LayoutProfileUpdate(it.id, it.displayName) })
+        syncProfileActions()
     }
 
     override fun reset() {
@@ -174,15 +189,32 @@ class LayoutProfilesConfigurable(private val project: Project) : SearchableConfi
     private fun profileRenderer(): ListCellRenderer<in ProfileDraft> {
         val renderer = DefaultListCellRenderer()
         return ListCellRenderer { list: JList<out ProfileDraft>, value, index, selected, focused ->
-            val shortcut = if (index < SHORTCUT_SLOT_COUNT) " — Apply Slot ${index + 1}" else ""
+            val shortcut = profileShortcutText(value.id, index + 1)
+                .takeIf(String::isNotEmpty)
+                ?.let { " — $it" }
+                .orEmpty()
+            val active = if (service().activeSlot()?.id == value.id) "✓ " else ""
             renderer.getListCellRendererComponent(
                 list,
-                "${index + 1}. ${value.displayName}$shortcut",
+                "$active${index + 1}. ${value.displayName}$shortcut",
                 index,
                 selected,
                 focused,
             )
         }
+    }
+
+    private fun profileShortcutText(profileId: String, slotNumber: Int): String {
+        val actionIds = buildList {
+            add(profileActionId(profileId))
+            if (slotNumber <= SHORTCUT_SLOT_COUNT) add(slotActionId(slotNumber))
+        }
+        val keymap = KeymapManager.getInstance().activeKeymap
+        val shortcuts = actionIds
+            .flatMap { keymap.getShortcuts(it).asList() }
+            .distinct()
+            .toTypedArray()
+        return KeymapUtil.getShortcutsText(shortcuts)
     }
 
     private data class ProfileDraft(
