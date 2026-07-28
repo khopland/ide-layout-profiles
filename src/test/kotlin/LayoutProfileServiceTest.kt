@@ -23,6 +23,36 @@ class LayoutProfileServiceTest {
     }
 
     @Test
+    fun `import rejects malformed display topology`() {
+        val profile = Element("profile")
+            .setAttribute("id", UUID.randomUUID().toString())
+            .setAttribute("name", "Malformed")
+            .addContent(
+                Element("ui")
+                    .setAttribute("main-toolbar", "true")
+                    .setAttribute("new-main-toolbar", "true")
+                    .setAttribute("main-menu", "true")
+                    .setAttribute("navigation-bar", "true")
+                    .setAttribute("navigation-bar-location", "TOP")
+                    .setAttribute("tool-window-bars-hidden", "false")
+                    .setAttribute("status-bar", "true")
+                    .setAttribute("editor-tab-placement", "-1")
+                    .setAttribute("widescreen", "false")
+                    .setAttribute("display-topology", "not-a-topology"),
+            )
+            .addContent(Element(LAYOUT_ELEMENT))
+        val root = Element("ide-layout-profiles")
+            .setAttribute("version", "1")
+            .addContent(profile)
+
+        val error = assertThrows(IllegalArgumentException::class.java) {
+            LayoutProfileInterchange.read(root)
+        }
+
+        assertEquals("Profile “Malformed” has an invalid display topology.", error.message)
+    }
+
+    @Test
     fun `import accepts legacy profiles without editor tab placement`() {
         val profile = Element("profile")
             .setAttribute("id", UUID.randomUUID().toString())

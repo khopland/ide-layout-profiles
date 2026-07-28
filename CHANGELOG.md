@@ -28,6 +28,8 @@
 - Settings actions no longer commit unrelated pending edits before Apply is pressed.
 - Settings actions now wrap onto additional rows instead of being clipped in narrow windows.
 - Legacy profiles without a saved editor-tab placement can now be imported.
+- Invalid display-topology metadata is now rejected during import.
+- Startup profiles now report missing native layouts instead of failing silently.
 
 ## [0.1.1]
 ### Changed

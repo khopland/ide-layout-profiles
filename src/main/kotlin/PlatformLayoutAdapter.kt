@@ -74,7 +74,7 @@ internal object PlatformLayoutAdapter {
 
     private fun readLayout(element: Element): Any {
         val layoutClass = ToolWindowDefaultLayoutManager.getInstance().getLayoutCopy().javaClass
-        val layout = layoutClass.getConstructor().newInstance()
+        val layout: Any = layoutClass.getConstructor().newInstance()
         layoutClass
             .getMethod("readExternal", Element::class.java, Boolean::class.javaPrimitiveType)
             .invoke(layout, element, false)

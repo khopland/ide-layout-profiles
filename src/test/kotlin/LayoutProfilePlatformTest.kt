@@ -1,6 +1,9 @@
 package io.github.khopland
 
 import com.intellij.ide.ui.UISettings
+import com.intellij.notification.Notification
+import com.intellij.notification.NotificationType
+import com.intellij.notification.Notifications
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.actionSystem.ActionGroup
 import com.intellij.openapi.application.ApplicationManager
@@ -8,6 +11,7 @@ import com.intellij.openapi.options.Configurable
 import com.intellij.openapi.util.JDOMUtil
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import com.intellij.testFramework.fixtures.IdeaTestFixtureFactory
+import kotlinx.coroutines.runBlocking
 import org.jdom.Element
 import java.awt.Component
 import java.awt.Container
@@ -217,6 +221,41 @@ class LayoutProfilePlatformTest : BasePlatformTestCase() {
                 listOf("None", "Work", "✓ Focus"),
                 group.getChildren(null).map { it.templatePresentation.text },
             )
+        } finally {
+            service.loadState(LayoutProfilesState())
+            syncProfileActions()
+        }
+    }
+
+    fun testStartupActivityReportsMissingNativeLayout() {
+        val service = ApplicationManager.getApplication().getService(LayoutProfileService::class.java)
+        var received: Notification? = null
+        project.messageBus.connect(testRootDisposable).subscribe(
+            Notifications.TOPIC,
+            object : Notifications {
+                override fun notify(notification: Notification) {
+                    received = notification
+                }
+            },
+        )
+
+        try {
+            service.loadState(LayoutProfilesState().apply {
+                startupProfileId = "startup"
+                slots = mutableListOf(
+                    LayoutProfile().apply {
+                        id = "startup"
+                        nativeLayoutName = "[IDE Layout Profiles Test] Missing"
+                        number = 1
+                        displayName = "Startup"
+                    },
+                )
+            })
+
+            runBlocking { ProfileActionsStartupActivity().execute(project) }
+
+            assertEquals(NotificationType.WARNING, received?.type)
+            assertTrue(received?.content?.contains("missing") == true)
         } finally {
             service.loadState(LayoutProfilesState())
             syncProfileActions()

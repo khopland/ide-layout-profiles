@@ -102,7 +102,9 @@ class ProfileActionsStartupActivity : ProjectActivity {
     override suspend fun execute(project: Project) {
         syncProfileActions()
         service().startupProfile()?.let { profile ->
-            service().apply(project, profile.number)
+            if (service().apply(project, profile.number) == ApplyResult.MISSING_LAYOUT) {
+                notify(project, "notification.missing", profile.number, warning = true)
+            }
         }
     }
 }

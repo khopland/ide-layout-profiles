@@ -104,6 +104,10 @@ internal object LayoutProfileInterchange {
         val nativeLayout = requireNotNull(getChild(LAYOUT_ELEMENT)) {
             "Profile “$displayName” has no tool-window layout."
         }
+        val displayTopology = ui.getAttributeValue("display-topology").orEmpty()
+        require(displayTopology.isBlank() || !DisplayTopology.parse(displayTopology).isEmpty) {
+            "Profile “$displayName” has an invalid display topology."
+        }
 
         return ImportedProfile(
             LayoutProfile().apply {
@@ -119,7 +123,7 @@ internal object LayoutProfileInterchange {
                 showStatusBar = ui.requiredBoolean("status-bar")
                 this.editorTabPlacement = editorTabPlacement
                 wideScreenSupport = ui.requiredBoolean("widescreen")
-                displayTopology = ui.getAttributeValue("display-topology").orEmpty()
+                this.displayTopology = displayTopology
             },
             nativeLayout.clone(),
         )

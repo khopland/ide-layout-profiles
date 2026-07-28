@@ -50,8 +50,8 @@ internal data class DisplayTopology(
                         y = values[1].toInt(),
                         width = values[2].toInt().also { require(it > 0) },
                         height = values[3].toInt().also { require(it > 0) },
-                        scaleX = values[4].toDouble().also { require(it > 0) },
-                        scaleY = values[5].toDouble().also { require(it > 0) },
+                        scaleX = values[4].toDouble().also { require(it.isFinite() && it > 0) },
+                        scaleY = values[5].toDouble().also { require(it.isFinite() && it > 0) },
                     )
                 }.sortedWith(compareBy(DisplayMonitor::x, DisplayMonitor::y))
             }.fold(::DisplayTopology) { EMPTY }
