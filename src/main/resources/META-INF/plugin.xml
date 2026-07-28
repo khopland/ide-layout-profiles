@@ -6,74 +6,83 @@
     <description><![CDATA[
         Save, update, and recall IntelliJ layout profiles from the keyboard.
         Profiles are shared across projects and include tool windows, the main toolbar,
-        navigation bar, tool-window bars, and status bar widgets.
+        navigation bar, tool-window bars, and the status bar.
         ]]></description>
 
     <depends>com.intellij.modules.platform</depends>
     <resource-bundle>messages.LayoutProfilesBundle</resource-bundle>
 
     <extensions defaultExtensionNs="com.intellij">
-        <notificationGroup id="IDE Layout Profiles" displayType="BALLOON" isLogByDefault="true"/>
+        <notificationGroup id="IDE Layout Profiles"
+                           displayType="BALLOON"
+                           bundle="messages.LayoutProfilesBundle"
+                           key="notification.group.displayName"
+                           isLogByDefault="true"/>
         <projectConfigurable id="io.github.khopland.ideLayoutProfiles.settings"
                              parentId="tools"
-                             displayName="IDE Layout Profiles"
+                             bundle="messages.LayoutProfilesBundle"
+                             key="settings.displayName"
                              instance="io.github.khopland.LayoutProfilesConfigurable"/>
     </extensions>
 
     <actions>
-        <group id="io.github.khopland.ideLayoutProfiles.actions" text="Layout Profiles" popup="true">
+        <group id="io.github.khopland.ideLayoutProfiles.actions" popup="true">
             <add-to-group group-id="WindowMenu" anchor="after" relative-to-action="LayoutsGroup"/>
 
             <action id="io.github.khopland.ideLayoutProfiles.applySlot1"
-                    class="io.github.khopland.ApplySlot1Action"
-                    text="Layout Profiles: Apply Slot 1"
-                    description="Apply the IDE layout profile assigned to slot 1">
-                <synonym text="Switch to IDE layout profile 1"/>
+                    class="io.github.khopland.ApplySlot1Action">
+                <synonym key="action.applySlot1.synonym"/>
             </action>
             <action id="io.github.khopland.ideLayoutProfiles.applySlot2"
-                    class="io.github.khopland.ApplySlot2Action"
-                    text="Layout Profiles: Apply Slot 2"
-                    description="Apply the IDE layout profile assigned to slot 2">
-                <synonym text="Switch to IDE layout profile 2"/>
+                    class="io.github.khopland.ApplySlot2Action">
+                <synonym key="action.applySlot2.synonym"/>
             </action>
             <action id="io.github.khopland.ideLayoutProfiles.applySlot3"
-                    class="io.github.khopland.ApplySlot3Action"
-                    text="Layout Profiles: Apply Slot 3"
-                    description="Apply the IDE layout profile assigned to slot 3">
-                <synonym text="Switch to IDE layout profile 3"/>
+                    class="io.github.khopland.ApplySlot3Action">
+                <synonym key="action.applySlot3.synonym"/>
             </action>
             <action id="io.github.khopland.ideLayoutProfiles.applySlot4"
-                    class="io.github.khopland.ApplySlot4Action"
-                    text="Layout Profiles: Apply Slot 4"
-                    description="Apply the IDE layout profile assigned to slot 4">
-                <synonym text="Switch to IDE layout profile 4"/>
+                    class="io.github.khopland.ApplySlot4Action">
+                <synonym key="action.applySlot4.synonym"/>
             </action>
             <action id="io.github.khopland.ideLayoutProfiles.applySlot5"
-                    class="io.github.khopland.ApplySlot5Action"
-                    text="Layout Profiles: Apply Slot 5"
-                    description="Apply the IDE layout profile assigned to slot 5">
-                <synonym text="Switch to IDE layout profile 5"/>
+                    class="io.github.khopland.ApplySlot5Action">
+                <synonym key="action.applySlot5.synonym"/>
+            </action>
+            <action id="io.github.khopland.ideLayoutProfiles.applySlot6"
+                    class="io.github.khopland.ApplySlot6Action">
+                <synonym key="action.applySlot6.synonym"/>
+            </action>
+            <action id="io.github.khopland.ideLayoutProfiles.applySlot7"
+                    class="io.github.khopland.ApplySlot7Action">
+                <synonym key="action.applySlot7.synonym"/>
+            </action>
+            <action id="io.github.khopland.ideLayoutProfiles.applySlot8"
+                    class="io.github.khopland.ApplySlot8Action">
+                <synonym key="action.applySlot8.synonym"/>
+            </action>
+            <action id="io.github.khopland.ideLayoutProfiles.applySlot9"
+                    class="io.github.khopland.ApplySlot9Action">
+                <synonym key="action.applySlot9.synonym"/>
+            </action>
+            <action id="io.github.khopland.ideLayoutProfiles.applySlot10"
+                    class="io.github.khopland.ApplySlot10Action">
+                <synonym key="action.applySlot10.synonym"/>
             </action>
 
             <separator/>
             <action id="io.github.khopland.ideLayoutProfiles.saveNew"
-                    class="io.github.khopland.SaveNewLayoutProfileAction"
-                    text="Layout Profiles: Save Current as New"
-                    description="Save the current IDE layout as a new profile">
-                <synonym text="Create IDE layout profile"/>
+                    class="io.github.khopland.SaveNewLayoutProfileAction">
+                <synonym key="action.saveNew.synonym"/>
             </action>
             <action id="io.github.khopland.ideLayoutProfiles.updateActive"
-                    class="io.github.khopland.UpdateActiveLayoutProfileAction"
-                    text="Layout Profiles: Update Active"
-                    description="Update the active IDE layout profile from the current layout">
-                <synonym text="Save changes to IDE layout profile"/>
+                    class="io.github.khopland.UpdateActiveLayoutProfileAction">
+                <synonym key="action.updateActive.synonym"/>
             </action>
             <separator/>
             <action id="io.github.khopland.ideLayoutProfiles.openSettings"
-                    class="io.github.khopland.OpenLayoutProfileSettingsAction"
-                    text="Layout Profiles: Open Settings…"
-                    description="Open IDE Layout Profiles settings">
-                <synonym text="Manage IDE layout profiles"/>
+                    class="io.github.khopland.OpenLayoutProfileSettingsAction">
+                <synonym key="action.openSettings.synonym"/>
             </action>
         </group>
     </actions>

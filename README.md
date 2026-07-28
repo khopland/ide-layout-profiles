@@ -4,16 +4,16 @@ Save and switch between complete IntelliJ IDEA layouts without rebuilding your w
 
 <!-- Plugin description -->
 IDE Layout Profiles saves the parts of your IntelliJ IDEA workspace that normally take several clicks to restore.
-Create up to five application-wide profiles, then apply or update them from the keyboard, **Find Action**, or
-**Search Everywhere**.
+Create as many application-wide profiles as you need. The first ten are assigned to stable keybinding actions;
+every profile can be applied from the settings page.
 
 Each profile stores:
 
 - tool-window positions, sizes, split groups, and shown/hidden state
-- main toolbar visibility, customized toolbar actions, and main menu visibility
+- main toolbar and main menu visibility
 - navigation bar visibility and position
 - tool-window bar visibility
-- status bar visibility and individual status-bar widgets
+- status bar visibility
 
 Profiles are shared across projects. Applying a profile restores the available tool windows in the focused project
 and the application-wide toolbar and status-bar settings in every open project window.
@@ -26,8 +26,8 @@ and the application-wide toolbar and status-bar settings in every open project w
 4. Apply or update a profile from its shortcut, **Window | Layout Profiles**, **Find Action**, or
    **Search Everywhere | All**.
 
-Use **Settings → Tools → IDE Layout Profiles** to create, rename, delete, reorder, or apply saved profiles. Profile order
-determines which profile is assigned to each **Apply Slot 1–5** action.
+Use **Settings → Tools → IDE Layout Profiles** to create, rename, delete, reorder, or apply saved profiles. The first
+ten profiles are assigned to the **Apply Slot 1–10** actions.
 
 The plugin provides no default shortcuts, so it will not conflict with your existing keymap.
 <!-- Plugin description end -->

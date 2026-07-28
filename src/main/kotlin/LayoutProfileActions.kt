@@ -41,6 +41,11 @@ class ApplySlot2Action : ApplySlotAction(2)
 class ApplySlot3Action : ApplySlotAction(3)
 class ApplySlot4Action : ApplySlotAction(4)
 class ApplySlot5Action : ApplySlotAction(5)
+class ApplySlot6Action : ApplySlotAction(6)
+class ApplySlot7Action : ApplySlotAction(7)
+class ApplySlot8Action : ApplySlotAction(8)
+class ApplySlot9Action : ApplySlotAction(9)
+class ApplySlot10Action : ApplySlotAction(10)
 
 class SaveNewLayoutProfileAction : DumbAwareAction() {
     override fun actionPerformed(event: AnActionEvent) {
@@ -58,7 +63,7 @@ class UpdateActiveLayoutProfileAction : DumbAwareAction() {
     override fun actionPerformed(event: AnActionEvent) {
         val project = event.project ?: return
         val updated = service().updateActive(project) ?: return
-        notify(project, "notification.updated", updated.displayName, updated.number)
+        notify(project, "notification.updated", updated.displayName)
     }
 
     override fun update(event: AnActionEvent) {
@@ -67,7 +72,7 @@ class UpdateActiveLayoutProfileAction : DumbAwareAction() {
         event.presentation.text = if (active == null) {
             LayoutProfilesBundle.message("action.update.none.text")
         } else {
-            LayoutProfilesBundle.message("action.update.text", active.number, active.displayName)
+            LayoutProfilesBundle.message("action.update.text",  active.displayName)
         }
     }
 
@@ -93,18 +98,14 @@ private fun service(): LayoutProfileService =
     ApplicationManager.getApplication().getService(LayoutProfileService::class.java)
 
 internal fun saveNewLayoutProfile(project: Project, name: String? = null): LayoutProfile? {
-    val slot = service().firstEmptySlot()
-    if (slot == null) {
-        notify(project, "notification.full", warning = true)
-        return null
-    }
+    val number = service().nextProfileNumber()
     val profileName = name ?: askForName(
         project,
-        LayoutProfilesBundle.message("dialog.save.defaultName", slot),
+        LayoutProfilesBundle.message("dialog.save.defaultName", number),
     ) ?: return null
-    service().save(project, slot, profileName)
-    notify(project, "notification.saved", profileName, slot)
-    return service().slot(slot)
+    service().save(project, number, profileName)
+    notify(project, "notification.saved", profileName)
+    return service().slot(number)
 }
 
 internal fun askForName(project: Project, initialValue: String): String? =

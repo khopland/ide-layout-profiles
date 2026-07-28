@@ -20,6 +20,7 @@ import javax.swing.ListCellRenderer
 import javax.swing.ListSelectionModel
 
 internal const val LAYOUT_PROFILE_SETTINGS_ID = "io.github.khopland.ideLayoutProfiles.settings"
+private const val SHORTCUT_SLOT_COUNT = 10
 
 class LayoutProfilesConfigurable(private val project: Project) : SearchableConfigurable {
     private var model: DefaultListModel<ProfileDraft>? = null
@@ -48,7 +49,6 @@ class LayoutProfilesConfigurable(private val project: Project) : SearchableConfi
 
         fun updateButtons() {
             val index = list.selectedIndex
-            createNew.isEnabled = listModel.size < LAYOUT_PROFILE_SLOT_COUNT
             rename.isEnabled = index >= 0
             delete.isEnabled = index >= 0
             moveUp.isEnabled = index > 0
@@ -132,7 +132,7 @@ class LayoutProfilesConfigurable(private val project: Project) : SearchableConfi
         return JPanel(BorderLayout(0, JBUI.scale(8))).apply {
             border = JBUI.Borders.empty(8)
             add(
-                JLabel("Profile order determines the Apply Slot 1–5 keybinding assignments."),
+                JLabel("The first ten profiles are assigned to the Apply Slot 1–10 keybindings."),
                 BorderLayout.NORTH,
             )
             add(JBScrollPane(list), BorderLayout.CENTER)
@@ -174,9 +174,10 @@ class LayoutProfilesConfigurable(private val project: Project) : SearchableConfi
     private fun profileRenderer(): ListCellRenderer<in ProfileDraft> {
         val renderer = DefaultListCellRenderer()
         return ListCellRenderer { list: JList<out ProfileDraft>, value, index, selected, focused ->
+            val shortcut = if (index < SHORTCUT_SLOT_COUNT) " — Apply Slot ${index + 1}" else ""
             renderer.getListCellRendererComponent(
                 list,
-                "Slot ${index + 1} — ${value.displayName}",
+                "${index + 1}. ${value.displayName}$shortcut",
                 index,
                 selected,
                 focused,

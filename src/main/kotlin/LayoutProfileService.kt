@@ -10,8 +10,6 @@ import com.intellij.openapi.components.Storage
 import com.intellij.openapi.project.Project
 import java.util.UUID
 
-internal const val LAYOUT_PROFILE_SLOT_COUNT = 5
-
 internal enum class ApplyResult {
     APPLIED,
     EMPTY,
@@ -36,22 +34,25 @@ internal class LayoutProfileService : PersistentStateComponent<LayoutProfilesSta
     override fun getState(): LayoutProfilesState = savedState
 
     override fun loadState(state: LayoutProfilesState) {
+        val activeNumber = state.activeSlot
         state.slots = state.slots
-            .filter { it.number in 1..LAYOUT_PROFILE_SLOT_COUNT && it.displayName.isNotBlank() }
+            .filter { it.number > 0 && it.displayName.isNotBlank() }
             .distinctBy { it.number }
             .sortedBy { it.number }
             .toMutableList()
+        val activeProfile = state.slots.firstOrNull { it.number == activeNumber }
         val usedIds = mutableSetOf<String>()
-        state.slots.forEach {
-            if (it.id.isBlank() || !usedIds.add(it.id)) {
-                it.id = UUID.randomUUID().toString()
-                usedIds.add(it.id)
+        state.slots.forEachIndexed { index, profile ->
+            if (profile.nativeLayoutName.isBlank()) {
+                profile.nativeLayoutName = legacyLayoutName(profile.number)
             }
-            if (it.nativeLayoutName.isBlank()) {
-                it.nativeLayoutName = legacyLayoutName(it.number)
+            profile.number = index + 1
+            if (profile.id.isBlank() || !usedIds.add(profile.id)) {
+                profile.id = UUID.randomUUID().toString()
+                usedIds.add(profile.id)
             }
         }
-        if (state.activeSlot !in state.slots.map { it.number }) state.activeSlot = 0
+        state.activeSlot = activeProfile?.let { state.slots.indexOf(it) + 1 } ?: 0
         savedState = state
     }
 
@@ -59,15 +60,15 @@ internal class LayoutProfileService : PersistentStateComponent<LayoutProfilesSta
 
     fun profiles(): List<LayoutProfile> = savedState.slots.sortedBy { it.number }
 
-    fun firstEmptySlot(): Int? = (1..LAYOUT_PROFILE_SLOT_COUNT).firstOrNull { slot(it) == null }
+    fun nextProfileNumber(): Int = savedState.slots.size + 1
 
     fun activeSlot(): LayoutProfile? = slot(savedState.activeSlot)
 
     fun save(project: Project, number: Int, displayName: String) {
-        require(number in 1..LAYOUT_PROFILE_SLOT_COUNT)
+        require(number in 1..nextProfileNumber())
         val current = slot(number)
         val id = current?.id ?: UUID.randomUUID().toString()
-        val savedSlot = LayoutProfile.capture(project, number, displayName.trim()).apply {
+        val savedSlot = LayoutProfile.capture(number, displayName.trim()).apply {
             this.id = id
             nativeLayoutName = current?.nativeLayoutName ?: layoutName(id)
         }
@@ -89,18 +90,22 @@ internal class LayoutProfileService : PersistentStateComponent<LayoutProfilesSta
         if (!PlatformLayoutAdapter.apply(project, savedSlot.nativeLayoutName)) return ApplyResult.MISSING_LAYOUT
 
         savedState.activeSlot = number
-        savedSlot.applyChrome(project)
+        savedSlot.applyChrome()
         return ApplyResult.APPLIED
     }
 
     fun clear(number: Int) {
+        val activeId = activeSlot()?.id
         slot(number)?.let { PlatformLayoutAdapter.delete(it.nativeLayoutName) }
         savedState.slots.removeAll { it.number == number }
-        if (savedState.activeSlot == number) savedState.activeSlot = 0
+        savedState.slots.forEachIndexed { index, profile -> profile.number = index + 1 }
+        savedState.activeSlot = savedState.slots
+            .firstOrNull { it.id == activeId }
+            ?.number
+            ?: 0
     }
 
     fun updateProfiles(updates: List<LayoutProfileUpdate>) {
-        require(updates.size <= LAYOUT_PROFILE_SLOT_COUNT)
         require(updates.all { it.displayName.isNotBlank() })
         require(updates.map { it.id }.distinct().size == updates.size)
 
@@ -145,12 +150,8 @@ internal class LayoutProfile {
     var navigationBarLocation: String = NavBarLocation.TOP.name
     var hideToolStripes: Boolean = false
     var showStatusBar: Boolean = true
-    var hasMainToolbarSnapshot: Boolean = false
-    var mainToolbarSnapshot: String = ""
-    var hasStatusBarWidgetSnapshot: Boolean = false
-    var statusBarWidgets: MutableMap<String, Boolean> = linkedMapOf()
 
-    fun applyChrome(project: Project) {
+    fun applyChrome() {
         UISettings.getInstance().apply {
             showMainToolbar = this@LayoutProfile.showMainToolbar
             showNewMainToolbar = this@LayoutProfile.showNewMainToolbar
@@ -161,19 +162,12 @@ internal class LayoutProfile {
                 ?: navBarLocation
             hideToolStripes = this@LayoutProfile.hideToolStripes
             showStatusBar = this@LayoutProfile.showStatusBar
-            MacToolbarRefresh.update(showNewMainToolbar)
             fireUISettingsChanged()
-        }
-        if (hasStatusBarWidgetSnapshot) {
-            StatusBarWidgetAdapter.apply(project, statusBarWidgets)
-        }
-        if (hasMainToolbarSnapshot) {
-            MainToolbarAdapter.apply(mainToolbarSnapshot)
         }
     }
 
     companion object {
-        fun capture(project: Project, number: Int, displayName: String): LayoutProfile {
+        fun capture(number: Int, displayName: String): LayoutProfile {
             val ui = UISettings.getInstance()
             return LayoutProfile().apply {
                 this.number = number
@@ -185,10 +179,6 @@ internal class LayoutProfile {
                 navigationBarLocation = ui.navBarLocation.name
                 hideToolStripes = ui.hideToolStripes
                 showStatusBar = ui.showStatusBar
-                mainToolbarSnapshot = MainToolbarAdapter.capture()
-                hasMainToolbarSnapshot = mainToolbarSnapshot.isNotEmpty()
-                hasStatusBarWidgetSnapshot = true
-                statusBarWidgets = StatusBarWidgetAdapter.capture(project).toMutableMap()
             }
         }
     }

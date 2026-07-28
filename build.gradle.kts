@@ -1,6 +1,5 @@
 import org.jetbrains.changelog.markdownToHTML
 import org.jetbrains.intellij.platform.gradle.TestFrameworkType
-import org.jetbrains.intellij.platform.gradle.tasks.VerifyPluginTask
 
 plugins {
     id("org.jetbrains.kotlin.jvm")
@@ -33,13 +32,6 @@ dependencies {
 intellijPlatform {
     pluginConfiguration {
         description = pluginDescription
-    }
-    pluginVerification {
-        // Layout capture relies on internal toolbar and status bar APIs; keep the other default failures enabled.
-        failureLevel = listOf(
-            VerifyPluginTask.FailureLevel.COMPATIBILITY_PROBLEMS,
-            VerifyPluginTask.FailureLevel.OVERRIDE_ONLY_API_USAGES,
-        )
     }
     publishing {
         token = providers.environmentVariable("PUBLISH_TOKEN")

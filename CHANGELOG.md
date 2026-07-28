@@ -3,6 +3,18 @@
 # IDE Layout Profiles Changelog
 
 ## [Unreleased]
+### Changed
+
+- Stopped capturing customized toolbar actions and individual status-bar widgets because IntelliJ exposes only internal APIs for those settings.
+
+### Added
+- 10 key bindings profiles
+- unlimited profiles from settings
+
+### Fixed
+
+
+## [0.1.0]
 
 ### Changed
 
@@ -11,10 +23,11 @@
 - Added the plugin icon.
 - Replaced the Manage Layout Profiles dialog with the settings page.
 - Expanded the README and made it the source for the JetBrains Marketplace description.
+- Removed the profile limit; the first ten profiles are assigned to shortcut slots.
 
 ### Added
 
-- Five global layout-profile slots with direct Keymap actions.
+- Ten fixed Keymap actions for applying the first ten profiles.
 - Save-new, update-active, and direct apply workflows.
 - Tool-window and IDE chrome visibility restoration across projects.
 - Settings page for renaming, deleting, reordering, and applying profiles.
@@ -26,5 +39,3 @@
 ### Fixed
 
 - Capture and restore the current IntelliJ main-toolbar visibility setting.
-- Capture and restore actions configured through **Customize Toolbar**.
-- Capture and restore individual status-bar widgets, including Line/Column, encoding, indentation, and Git branch.
