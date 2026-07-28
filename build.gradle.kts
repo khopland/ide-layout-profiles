@@ -61,10 +61,10 @@ intellijPlatformTesting {
                 task {
                     filter {
                         includeTestsMatching(
-                            "io.github.khopland.LayoutProfilePlatformTest.testProfilesCanBeExportedAndImported",
+                            "io.github.khopland.LayoutProfilePlatformTest.test*Import*",
                         )
                         includeTestsMatching(
-                            "io.github.khopland.LayoutProfilePlatformTest.testFailedImportRestoresExistingNativeLayouts",
+                            "io.github.khopland.LayoutProfilePlatformTest.testSelectedProfileCanBeExported",
                         )
                     }
                 }

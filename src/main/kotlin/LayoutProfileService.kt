@@ -17,6 +17,18 @@ internal enum class ApplyResult {
     MISSING_LAYOUT,
 }
 
+internal enum class ImportMode {
+    ADD,
+    UPDATE_EXISTING,
+    COPY,
+    REPLACE_ALL,
+}
+
+internal data class ImportResult(
+    val imported: Int,
+    val skipped: Int,
+)
+
 internal data class LayoutProfileUpdate(
     val id: String,
     val displayName: String,
@@ -69,24 +81,75 @@ internal class LayoutProfileService : PersistentStateComponent<LayoutProfilesSta
 
     fun exportProfiles(): Element = LayoutProfileInterchange.write(profiles())
 
-    fun importProfiles(imported: ImportedProfiles): Int {
-        val oldLayoutNames = savedState.slots.mapTo(mutableSetOf(), LayoutProfile::nativeLayoutName)
-        val newState = LayoutProfilesState().apply {
-            slots = imported.profiles.mapIndexed { index, importedProfile ->
-                importedProfile.profile.apply {
-                    number = index + 1
-                    nativeLayoutName = layoutName(id)
+    fun exportProfiles(profileIds: Set<String>): Element {
+        require(profileIds.isNotEmpty())
+        val selected = profiles().filter { it.id in profileIds }
+        require(selected.size == profileIds.size)
+        return LayoutProfileInterchange.write(selected)
+    }
+
+    fun importProfiles(imported: ImportedProfiles): Int =
+        importProfiles(imported, ImportMode.REPLACE_ALL).imported
+
+    fun importProfiles(imported: ImportedProfiles, mode: ImportMode): ImportResult {
+        val existingProfiles = profiles()
+        val existingById = existingProfiles.associateBy(LayoutProfile::id)
+        val activeId = activeSlot()?.id
+        val selectedImports = when (mode) {
+            ImportMode.ADD -> imported.profiles.filter { it.profile.id !in existingById }
+            ImportMode.UPDATE_EXISTING -> imported.profiles.filter { it.profile.id in existingById }
+            ImportMode.COPY -> {
+                val usedIds = existingById.keys.toMutableSet()
+                imported.profiles.onEach { importedProfile ->
+                    importedProfile.profile.id = generateSequence { UUID.randomUUID().toString() }
+                        .first(usedIds::add)
                 }
-            }.toMutableList()
-        }
-        val newLayouts = newState.slots
-            .zip(imported.profiles)
-            .associate { (profile, importedProfile) ->
-                profile.nativeLayoutName to importedProfile.nativeLayout
             }
-        PlatformLayoutAdapter.replace(newLayouts, oldLayoutNames - newLayouts.keys)
+            ImportMode.REPLACE_ALL -> imported.profiles
+        }
+
+        selectedImports.forEach { importedProfile ->
+            importedProfile.profile.nativeLayoutName = layoutName(importedProfile.profile.id)
+        }
+        val replacementsById = selectedImports.associateBy { it.profile.id }
+        val finalProfiles = when (mode) {
+            ImportMode.ADD,
+            ImportMode.COPY,
+                -> existingProfiles + selectedImports.map(ImportedProfile::profile)
+            ImportMode.UPDATE_EXISTING -> existingProfiles.map { profile ->
+                replacementsById[profile.id]?.profile ?: profile
+            }
+            ImportMode.REPLACE_ALL -> selectedImports.map(ImportedProfile::profile)
+        }
+        val newState = LayoutProfilesState().apply {
+            slots = finalProfiles.onEachIndexed { index, profile ->
+                profile.number = index + 1
+            }.toMutableList()
+            activeSlot = if (mode == ImportMode.REPLACE_ALL) {
+                0
+            } else {
+                slots.indexOfFirst { it.id == activeId }.takeIf { it >= 0 }?.plus(1) ?: 0
+            }
+        }
+        val newLayouts = selectedImports.associate { importedProfile ->
+            importedProfile.profile.nativeLayoutName to importedProfile.nativeLayout
+        }
+        val obsoleteLayoutNames = when (mode) {
+            ImportMode.UPDATE_EXISTING -> selectedImports
+                .mapNotNull { existingById[it.profile.id]?.nativeLayoutName }
+                .toSet() - newLayouts.keys
+            ImportMode.REPLACE_ALL -> existingProfiles
+                .mapTo(mutableSetOf(), LayoutProfile::nativeLayoutName) - newLayouts.keys
+            ImportMode.ADD,
+            ImportMode.COPY,
+                -> emptySet()
+        }
+        PlatformLayoutAdapter.replace(newLayouts, obsoleteLayoutNames)
         loadState(newState)
-        return newState.slots.size
+        return ImportResult(
+            imported = selectedImports.size,
+            skipped = imported.profiles.size - selectedImports.size,
+        )
     }
 
     fun save(project: Project, number: Int, displayName: String) {

@@ -15,6 +15,9 @@
 - Profiles now capture editor-tab placement and the widescreen tool-window setting.
 - Added **Apply Active to All Open Projects** for multi-window workflows.
 - Added versioned XML import and export for complete layout profiles.
+- Added selected-profile export alongside full-profile export.
+- Added **Add New**, **Update Existing**, **Import as Copies**, and explicit **Replace All** import modes.
+- Added an **Update Profile** submenu for updating any saved profile from the Window menu.
 
 ### Fixed
 

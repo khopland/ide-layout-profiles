@@ -33,6 +33,9 @@
             <group id="io.github.khopland.ideLayoutProfiles.applyProfile"
                    class="io.github.khopland.ApplyLayoutProfileGroup"
                    popup="true"/>
+            <group id="io.github.khopland.ideLayoutProfiles.updateProfile"
+                   class="io.github.khopland.UpdateLayoutProfileGroup"
+                   popup="true"/>
             <separator/>
 
             <action id="io.github.khopland.ideLayoutProfiles.applySlot1"

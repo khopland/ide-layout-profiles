@@ -59,7 +59,8 @@ class LayoutProfilesConfigurable(private val project: Project) : SearchableConfi
         val applyProfile = JButton("Apply Profile")
         val updateProfile = JButton("Update from Current")
         val importProfiles = JButton("Import…")
-        val exportProfiles = JButton("Export…")
+        val exportSelected = JButton("Export Selected…")
+        val exportAll = JButton("Export All…")
 
         fun updateButtons() {
             val index = list.selectedIndex
@@ -69,7 +70,8 @@ class LayoutProfilesConfigurable(private val project: Project) : SearchableConfi
             moveDown.isEnabled = index in 0 until listModel.size - 1
             applyProfile.isEnabled = index >= 0
             updateProfile.isEnabled = index >= 0
-            exportProfiles.isEnabled = !listModel.isEmpty
+            exportSelected.isEnabled = index >= 0
+            exportAll.isEnabled = !listModel.isEmpty
         }
 
         createNew.addActionListener {
@@ -149,22 +151,17 @@ class LayoutProfilesConfigurable(private val project: Project) : SearchableConfi
             ) ?: return@addActionListener
             try {
                 val imported = LayoutProfileInterchange.read(JDOMUtil.load(file.toNioPath()))
-                if (
-                    !listModel.isEmpty &&
-                    Messages.showYesNoDialog(
-                        project,
-                        "Replace all current layout profiles with ${imported.profiles.size} imported profiles?",
-                        "Import Layout Profiles",
-                        Messages.getWarningIcon(),
-                    ) != Messages.YES
-                ) {
-                    return@addActionListener
-                }
-                val count = service().importProfiles(imported)
+                val mode = chooseImportMode(imported.profiles.size) ?: return@addActionListener
+                val savedBefore = savedDrafts().associateBy(ProfileDraft::id)
+                val result = service().importProfiles(imported, mode)
                 syncProfileActions()
-                reset()
+                if (mode == ImportMode.REPLACE_ALL) reset() else reconcileDrafts(savedBefore)
                 updateButtons()
-                notify(project, "notification.imported", count)
+                if (result.skipped == 0) {
+                    notify(project, "notification.imported", result.imported)
+                } else {
+                    notify(project, "notification.importedSkipped", result.imported, result.skipped)
+                }
             } catch (error: Exception) {
                 Messages.showErrorDialog(
                     project,
@@ -173,29 +170,11 @@ class LayoutProfilesConfigurable(private val project: Project) : SearchableConfi
                 )
             }
         }
-        exportProfiles.addActionListener {
-            val file = FileChooserFactory.getInstance()
-                .createSaveFileDialog(
-                    FileSaverDescriptor(
-                        "Export Layout Profiles",
-                        "Save all layout profiles to a portable file.",
-                        "xml",
-                    ),
-                    project,
-                )
-                .save("ide-layout-profiles.xml")
-                ?: return@addActionListener
-            try {
-                JDOMUtil.write(service().exportProfiles(), file.file.toPath())
-                notify(project, "notification.exported", file.file.name)
-            } catch (error: Exception) {
-                Messages.showErrorDialog(
-                    project,
-                    error.cause?.message ?: error.message ?: "Could not export layout profiles.",
-                    "Export Layout Profiles",
-                )
-            }
+        exportSelected.addActionListener {
+            val selected = list.selectedValue ?: return@addActionListener
+            exportProfiles(setOf(selected.id), "ide-layout-profile.xml")
         }
+        exportAll.addActionListener { exportProfiles(null, "ide-layout-profiles.xml") }
         list.addListSelectionListener { updateButtons() }
 
         val buttons = JPanel(WrappingFlowLayout(FlowLayout.LEADING, JBUI.scale(8), 0)).apply {
@@ -207,7 +186,8 @@ class LayoutProfilesConfigurable(private val project: Project) : SearchableConfi
             add(applyProfile)
             add(updateProfile)
             add(importProfiles)
-            add(exportProfiles)
+            add(exportSelected)
+            add(exportAll)
         }
         return JPanel(BorderLayout(0, JBUI.scale(8))).apply {
             border = JBUI.Borders.empty(8)
@@ -239,6 +219,71 @@ class LayoutProfilesConfigurable(private val project: Project) : SearchableConfi
     override fun disposeUIResources() {
         model = null
         profileList = null
+    }
+
+    private fun chooseImportMode(profileCount: Int): ImportMode? {
+        val choice = Messages.showDialog(
+            project,
+            """
+            Choose how to import $profileCount layout profiles.
+
+            Add New keeps existing profiles and skips matching IDs.
+            Update Existing changes matching IDs only.
+            Import as Copies adds every profile with a new ID.
+            Replace All removes the current profiles.
+            """.trimIndent(),
+            "Import Layout Profiles",
+            arrayOf("Add New", "Update Existing", "Import as Copies", "Replace All", "Cancel"),
+            0,
+            Messages.getQuestionIcon(),
+        )
+        return when (choice) {
+            0 -> ImportMode.ADD
+            1 -> ImportMode.UPDATE_EXISTING
+            2 -> ImportMode.COPY
+            3 -> ImportMode.REPLACE_ALL
+            else -> null
+        }
+    }
+
+    private fun exportProfiles(profileIds: Set<String>?, defaultFileName: String) {
+        val file = FileChooserFactory.getInstance()
+            .createSaveFileDialog(
+                FileSaverDescriptor(
+                    "Export Layout Profiles",
+                    "Save layout profiles to a portable file.",
+                    "xml",
+                ),
+                project,
+            )
+            .save(defaultFileName)
+            ?: return
+        try {
+            val exported = profileIds?.let(service()::exportProfiles) ?: service().exportProfiles()
+            JDOMUtil.write(exported, file.file.toPath())
+            notify(project, "notification.exported", file.file.name)
+        } catch (error: Exception) {
+            Messages.showErrorDialog(
+                project,
+                error.cause?.message ?: error.message ?: "Could not export layout profiles.",
+                "Export Layout Profiles",
+            )
+        }
+    }
+
+    private fun reconcileDrafts(savedBefore: Map<String, ProfileDraft>) {
+        val listModel = model ?: return
+        val savedAfter = service().profiles().associateBy(LayoutProfile::id)
+        repeat(listModel.size) { index ->
+            val draft = listModel.getElementAt(index)
+            val updated = savedAfter[draft.id] ?: return@repeat
+            if (draft.displayName == savedBefore[draft.id]?.displayName) {
+                listModel.set(index, draft.copy(displayName = updated.displayName))
+            }
+        }
+        savedAfter.values
+            .filter { it.id !in savedBefore }
+            .forEach { listModel.addElement(ProfileDraft(it.id, it.displayName)) }
     }
 
     private fun drafts(): List<ProfileDraft> {

@@ -27,6 +27,9 @@ class LayoutProfilePlatformTest : BasePlatformTestCase() {
         assertTrue(
             actions.getAction("io.github.khopland.ideLayoutProfiles.applyProfile") is ActionGroup,
         )
+        assertTrue(
+            actions.getAction("io.github.khopland.ideLayoutProfiles.updateProfile") is ActionGroup,
+        )
         @Suppress("UnresolvedPluginConfigReference")
         assertNull(actions.getAction("io.github.khopland.ideLayoutProfiles.manage"))
         assertTrue(
@@ -64,7 +67,12 @@ class LayoutProfilePlatformTest : BasePlatformTestCase() {
         assertTrue(
             component.descendants()
                 .filterIsInstance<JButton>()
-                .any { it.text == "Export…" },
+                .any { it.text == "Export Selected…" },
+        )
+        assertTrue(
+            component.descendants()
+                .filterIsInstance<JButton>()
+                .any { it.text == "Export All…" },
         )
         configurable.disposeUIResources()
     }
@@ -140,6 +148,38 @@ class LayoutProfilePlatformTest : BasePlatformTestCase() {
             assertEquals(11, children.size)
             assertEquals("Profile 1", children.first().templatePresentation.text)
             assertEquals("✓ Profile 11", children.last().templatePresentation.text)
+        } finally {
+            service.loadState(LayoutProfilesState())
+            syncProfileActions()
+        }
+    }
+
+    fun testUpdateProfileGroupListsEveryProfile() {
+        val service = ApplicationManager.getApplication().getService(LayoutProfileService::class.java)
+
+        try {
+            service.loadState(LayoutProfilesState().apply {
+                slots = mutableListOf(
+                    LayoutProfile().apply {
+                        id = "work"
+                        number = 1
+                        displayName = "Work"
+                    },
+                    LayoutProfile().apply {
+                        id = "focus"
+                        number = 2
+                        displayName = "Focus"
+                    },
+                )
+            })
+
+            val group = ActionManager.getInstance()
+                .getAction("io.github.khopland.ideLayoutProfiles.updateProfile") as ActionGroup
+
+            assertEquals(
+                listOf("Work", "Focus"),
+                group.getChildren(null).map { it.templatePresentation.text },
+            )
         } finally {
             service.loadState(LayoutProfilesState())
             syncProfileActions()
@@ -266,6 +306,101 @@ class LayoutProfilePlatformTest : BasePlatformTestCase() {
         } finally {
             while (service.profiles().isNotEmpty()) service.clear(1)
             original.applyChrome()
+        }
+    }
+
+    fun testSelectedProfileCanBeExported() {
+        val service = LayoutProfileService()
+
+        try {
+            service.save(project, 1, "First")
+            service.save(project, 2, "Second")
+            val second = requireNotNull(service.slot(2))
+
+            val exported = LayoutProfileInterchange.read(
+                service.exportProfiles(setOf(second.id)),
+            )
+
+            assertEquals(listOf("Second"), exported.profiles.map { it.profile.displayName })
+        } finally {
+            while (service.profiles().isNotEmpty()) service.clear(1)
+        }
+    }
+
+    fun testAddImportAppendsOnlyNewProfiles() {
+        val service = LayoutProfileService()
+
+        try {
+            service.save(project, 1, "Existing")
+            val existing = requireNotNull(service.slot(1))
+            val layout = requireNotNull(PlatformLayoutAdapter.export(existing.nativeLayoutName))
+            val addedId = java.util.UUID.randomUUID().toString()
+
+            val result = service.importProfiles(
+                ImportedProfiles(
+                    listOf(
+                        importedProfile(existing.id, "Replacement", layout),
+                        importedProfile(addedId, "Added", layout),
+                    ),
+                ),
+                ImportMode.ADD,
+            )
+
+            assertEquals(ImportResult(imported = 1, skipped = 1), result)
+            assertEquals(listOf("Existing", "Added"), service.profiles().map(LayoutProfile::displayName))
+        } finally {
+            while (service.profiles().isNotEmpty()) service.clear(1)
+        }
+    }
+
+    fun testUpdateImportChangesOnlyExistingProfiles() {
+        val service = LayoutProfileService()
+
+        try {
+            service.save(project, 1, "Existing")
+            service.save(project, 2, "Keep")
+            val existing = requireNotNull(service.slot(1))
+            val layout = requireNotNull(PlatformLayoutAdapter.export(existing.nativeLayoutName))
+            val missingId = java.util.UUID.randomUUID().toString()
+
+            val result = service.importProfiles(
+                ImportedProfiles(
+                    listOf(
+                        importedProfile(existing.id, "Updated", layout),
+                        importedProfile(missingId, "Missing", layout),
+                    ),
+                ),
+                ImportMode.UPDATE_EXISTING,
+            )
+
+            assertEquals(ImportResult(imported = 1, skipped = 1), result)
+            assertEquals(listOf("Updated", "Keep"), service.profiles().map(LayoutProfile::displayName))
+            assertNull(service.profile(missingId))
+        } finally {
+            while (service.profiles().isNotEmpty()) service.clear(1)
+        }
+    }
+
+    fun testCopyImportAssignsFreshProfileIds() {
+        val service = LayoutProfileService()
+
+        try {
+            service.save(project, 1, "Existing")
+            val existing = requireNotNull(service.slot(1))
+            val layout = requireNotNull(PlatformLayoutAdapter.export(existing.nativeLayoutName))
+
+            val result = service.importProfiles(
+                ImportedProfiles(
+                    listOf(importedProfile(existing.id, "Copied", layout)),
+                ),
+                ImportMode.COPY,
+            )
+
+            assertEquals(ImportResult(imported = 1, skipped = 0), result)
+            assertEquals(listOf("Existing", "Copied"), service.profiles().map(LayoutProfile::displayName))
+            assertEquals(2, service.profiles().map(LayoutProfile::id).distinct().size)
+        } finally {
+            while (service.profiles().isNotEmpty()) service.clear(1)
         }
     }
 
@@ -413,6 +548,14 @@ class LayoutProfilePlatformTest : BasePlatformTestCase() {
             if (it is Container) yieldAll(it.descendants())
         }
     }
+
+    private fun importedProfile(id: String, name: String, layout: Element) = ImportedProfile(
+        LayoutProfile().apply {
+            this.id = id
+            displayName = name
+        },
+        layout.clone(),
+    )
 
     private fun Container.layoutRecursively() {
         doLayout()

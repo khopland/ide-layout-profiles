@@ -69,6 +69,15 @@ class ApplyLayoutProfileGroup : ActionGroup(), DumbAware {
     override fun getActionUpdateThread() = ActionUpdateThread.EDT
 }
 
+class UpdateLayoutProfileGroup : ActionGroup(), DumbAware {
+    override fun getChildren(event: AnActionEvent?): Array<AnAction> =
+        service().profiles()
+            .map { UpdateLayoutProfileAction(it.id, it.displayName) }
+            .toTypedArray()
+
+    override fun getActionUpdateThread() = ActionUpdateThread.EDT
+}
+
 class ProfileActionsStartupActivity : ProjectActivity {
     override suspend fun execute(project: Project) {
         syncProfileActions()
@@ -94,6 +103,25 @@ private class ApplyLayoutProfileAction(
                 service().activeSlot()?.id == profileId,
             )
         }
+    }
+
+    override fun getActionUpdateThread() = ActionUpdateThread.EDT
+}
+
+private class UpdateLayoutProfileAction(
+    private val profileId: String,
+    displayName: String,
+) : DumbAwareAction(displayName) {
+    override fun actionPerformed(event: AnActionEvent) {
+        val project = event.project ?: return
+        val updated = service().update(project, profileId) ?: return
+        notify(project, "notification.updated", updated.displayName)
+    }
+
+    override fun update(event: AnActionEvent) {
+        val profile = service().profile(profileId)
+        event.presentation.isEnabledAndVisible = event.project != null && profile != null
+        if (profile != null) event.presentation.text = profile.displayName
     }
 
     override fun getActionUpdateThread() = ActionUpdateThread.EDT

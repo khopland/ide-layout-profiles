@@ -27,7 +27,8 @@ and the application-wide toolbar and status-bar settings in every open project w
 4. Apply or update a profile from its shortcut, **Window | Layout Profiles**, **Find Action**, or
    **Search Everywhere | All**.
 
-Use **Window → Layout Profiles → Apply Profile** to apply any saved profile by name. Use
+Use **Window → Layout Profiles → Apply Profile** to apply any saved profile by name, or **Update Profile** to replace
+any saved profile with the current layout. Use
 **Settings → Tools → IDE Layout Profiles** to create, rename, delete, reorder, apply, or update saved profiles. The
 first ten profiles are assigned to the **Apply Slot 1–10** actions.
 
@@ -36,9 +37,10 @@ will not conflict with your existing keymap.
 
 Use **Apply Active to All Open Projects** to restore the active profile in every open IDE frame.
 
-Use **Import…** and **Export…** in Settings to move complete profiles between IDE installations. The readable XML
-format is versioned and includes native tool-window layouts plus IDE chrome settings. Import replaces the current
-profiles after confirmation; keymap shortcuts remain managed separately by IntelliJ IDEA.
+Use **Import…**, **Export Selected…**, and **Export All…** in Settings to move complete profiles between IDE
+installations. The readable XML format is versioned and includes native tool-window layouts plus IDE chrome settings.
+Import can add new profiles, update matching profiles, create copies, or explicitly replace all current profiles;
+keymap shortcuts remain managed separately by IntelliJ IDEA.
 <!-- Plugin description end -->
 
 ## Compatibility
@@ -50,6 +52,7 @@ IDE Layout Profiles currently targets IntelliJ IDEA 2025.3 and newer.
 ```bash
 ./gradlew runIde
 ./gradlew check
+./gradlew testLayoutInterchangeAll
 ./gradlew verifyPlugin
 ./gradlew buildPlugin
 ```
