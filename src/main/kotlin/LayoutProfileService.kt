@@ -8,6 +8,7 @@ import com.intellij.openapi.components.SettingsCategory
 import com.intellij.openapi.components.State
 import com.intellij.openapi.components.Storage
 import com.intellij.openapi.project.Project
+import org.jdom.Element
 import java.util.UUID
 
 internal enum class ApplyResult {
@@ -65,6 +66,25 @@ internal class LayoutProfileService : PersistentStateComponent<LayoutProfilesSta
     fun nextProfileNumber(): Int = savedState.slots.size + 1
 
     fun activeSlot(): LayoutProfile? = slot(savedState.activeSlot)
+
+    fun exportProfiles(): Element = LayoutProfileInterchange.write(profiles())
+
+    fun importProfiles(imported: ImportedProfiles): Int {
+        val oldLayoutNames = savedState.slots.mapTo(mutableSetOf(), LayoutProfile::nativeLayoutName)
+        val newState = LayoutProfilesState().apply {
+            slots = imported.profiles.mapIndexed { index, importedProfile ->
+                importedProfile.profile.apply {
+                    number = index + 1
+                    nativeLayoutName = layoutName(id)
+                    PlatformLayoutAdapter.import(nativeLayoutName, importedProfile.nativeLayout)
+                    oldLayoutNames.remove(nativeLayoutName)
+                }
+            }.toMutableList()
+        }
+        oldLayoutNames.forEach(PlatformLayoutAdapter::delete)
+        loadState(newState)
+        return newState.slots.size
+    }
 
     fun save(project: Project, number: Int, displayName: String) {
         require(number in 1..nextProfileNumber())

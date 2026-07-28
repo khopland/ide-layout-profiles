@@ -1,13 +1,26 @@
 package io.github.khopland
 
 import com.intellij.util.xmlb.XmlSerializer
+import org.jdom.Element
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import javax.swing.SwingConstants
 
 class LayoutProfileServiceTest {
+    @Test
+    fun `import rejects unsupported format versions`() {
+        val error = assertThrows(IllegalArgumentException::class.java) {
+            LayoutProfileInterchange.read(
+                Element("ide-layout-profiles").setAttribute("version", "2"),
+            )
+        }
+
+        assertEquals("Unsupported profile export version.", error.message)
+    }
+
     @Test
     fun `loading state drops invalid profiles and compacts positions`() {
         val service = LayoutProfileService()

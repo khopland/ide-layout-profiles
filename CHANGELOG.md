@@ -11,6 +11,7 @@
 - Settings now shows shortcuts assigned to profile actions and the first ten slot aliases.
 - Profiles now capture editor-tab placement and the widescreen tool-window setting.
 - Added **Apply Active to All Open Projects** for multi-window workflows.
+- Added versioned XML import and export for complete layout profiles.
 
 ### Fixed
 

@@ -1,11 +1,16 @@
 package io.github.khopland
 
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.fileChooser.FileChooser
+import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory
+import com.intellij.openapi.fileChooser.FileChooserFactory
+import com.intellij.openapi.fileChooser.FileSaverDescriptor
 import com.intellij.openapi.keymap.KeymapManager
 import com.intellij.openapi.keymap.KeymapUtil
 import com.intellij.openapi.options.SearchableConfigurable
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
+import com.intellij.openapi.util.JDOMUtil
 import com.intellij.ui.components.JBList
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.util.ui.JBUI
@@ -53,6 +58,8 @@ class LayoutProfilesConfigurable(private val project: Project) : SearchableConfi
         val moveDown = JButton("Move Down")
         val applyProfile = JButton("Apply Profile")
         val updateProfile = JButton("Update from Current")
+        val importProfiles = JButton("Import…")
+        val exportProfiles = JButton("Export…")
 
         fun updateButtons() {
             val index = list.selectedIndex
@@ -62,6 +69,7 @@ class LayoutProfilesConfigurable(private val project: Project) : SearchableConfi
             moveDown.isEnabled = index in 0 until listModel.size - 1
             applyProfile.isEnabled = index >= 0
             updateProfile.isEnabled = index >= 0
+            exportProfiles.isEnabled = !listModel.isEmpty
         }
 
         createNew.addActionListener {
@@ -135,6 +143,63 @@ class LayoutProfilesConfigurable(private val project: Project) : SearchableConfi
             notify(project, "notification.updated", updated.displayName)
             list.repaint()
         }
+        importProfiles.addActionListener {
+            val file = FileChooser.chooseFile(
+                FileChooserDescriptorFactory.createSingleFileDescriptor("xml")
+                    .withTitle("Import Layout Profiles"),
+                project,
+                null,
+            ) ?: return@addActionListener
+            try {
+                val imported = LayoutProfileInterchange.read(JDOMUtil.load(file.toNioPath()))
+                if (
+                    !listModel.isEmpty &&
+                    Messages.showYesNoDialog(
+                        project,
+                        "Replace all current layout profiles with ${imported.profiles.size} imported profiles?",
+                        "Import Layout Profiles",
+                        Messages.getWarningIcon(),
+                    ) != Messages.YES
+                ) {
+                    return@addActionListener
+                }
+                val count = service().importProfiles(imported)
+                syncProfileActions()
+                reset()
+                updateButtons()
+                notify(project, "notification.imported", count)
+            } catch (error: Exception) {
+                Messages.showErrorDialog(
+                    project,
+                    error.cause?.message ?: error.message ?: "Could not import layout profiles.",
+                    "Import Layout Profiles",
+                )
+            }
+        }
+        exportProfiles.addActionListener {
+            val file = FileChooserFactory.getInstance()
+                .createSaveFileDialog(
+                    FileSaverDescriptor(
+                        "Export Layout Profiles",
+                        "Save all layout profiles to a portable file.",
+                        "xml",
+                    ),
+                    project,
+                )
+                .save("ide-layout-profiles.xml")
+                ?: return@addActionListener
+            try {
+                apply()
+                JDOMUtil.write(service().exportProfiles(), file.file.toPath())
+                notify(project, "notification.exported", file.file.name)
+            } catch (error: Exception) {
+                Messages.showErrorDialog(
+                    project,
+                    error.cause?.message ?: error.message ?: "Could not export layout profiles.",
+                    "Export Layout Profiles",
+                )
+            }
+        }
         list.addListSelectionListener { updateButtons() }
 
         val buttons = JPanel(WrappingFlowLayout(FlowLayout.LEADING, JBUI.scale(8), 0)).apply {
@@ -145,6 +210,8 @@ class LayoutProfilesConfigurable(private val project: Project) : SearchableConfi
             add(moveDown)
             add(applyProfile)
             add(updateProfile)
+            add(importProfiles)
+            add(exportProfiles)
         }
         return JPanel(BorderLayout(0, JBUI.scale(8))).apply {
             border = JBUI.Borders.empty(8)

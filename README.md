@@ -35,6 +35,10 @@ Profile-specific shortcuts survive profile renaming and reordering. The plugin p
 will not conflict with your existing keymap.
 
 Use **Apply Active to All Open Projects** to restore the active profile in every open IDE frame.
+
+Use **Import…** and **Export…** in Settings to move complete profiles between IDE installations. The readable XML
+format is versioned and includes native tool-window layouts plus IDE chrome settings. Import replaces the current
+profiles after confirmation; keymap shortcuts remain managed separately by IntelliJ IDEA.
 <!-- Plugin description end -->
 
 ## Compatibility

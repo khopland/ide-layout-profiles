@@ -5,6 +5,7 @@ import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.actionSystem.ActionGroup
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.options.Configurable
+import com.intellij.openapi.util.JDOMUtil
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import java.awt.Component
 import java.awt.Container
@@ -52,6 +53,16 @@ class LayoutProfilePlatformTest : BasePlatformTestCase() {
             component.descendants()
                 .filterIsInstance<JButton>()
                 .any { it.text == "Update from Current" },
+        )
+        assertTrue(
+            component.descendants()
+                .filterIsInstance<JButton>()
+                .any { it.text == "Import…" },
+        )
+        assertTrue(
+            component.descendants()
+                .filterIsInstance<JButton>()
+                .any { it.text == "Export…" },
         )
         configurable.disposeUIResources()
     }
@@ -197,6 +208,37 @@ class LayoutProfilePlatformTest : BasePlatformTestCase() {
             assertTrue(ui.wideScreenSupport)
         } finally {
             service.clear(1)
+            original.applyChrome()
+        }
+    }
+
+    fun testProfilesCanBeExportedAndImported() {
+        val ui = UISettings.getInstance()
+        val original = LayoutProfile.capture(0, "Original")
+        val service = LayoutProfileService()
+
+        try {
+            ui.showStatusBar = false
+            ui.editorTabPlacement = SwingConstants.BOTTOM
+            service.save(project, 1, "Portable")
+            val profileId = service.slot(1)!!.id
+            val xml = JDOMUtil.write(service.exportProfiles())
+
+            assertTrue(xml.contains("<ide-layout-profiles version=\"1\">"))
+            assertTrue(xml.contains("<tool-window-layout>"))
+
+            val imported = LayoutProfileInterchange.read(JDOMUtil.load(xml))
+            service.clear(1)
+            assertEquals(1, service.importProfiles(imported))
+
+            val restored = service.slot(1)!!
+            assertEquals(profileId, restored.id)
+            assertEquals("Portable", restored.displayName)
+            assertFalse(restored.showStatusBar)
+            assertEquals(SwingConstants.BOTTOM, restored.editorTabPlacement)
+            assertEquals(ApplyResult.APPLIED, service.apply(project, 1))
+        } finally {
+            while (service.profiles().isNotEmpty()) service.clear(1)
             original.applyChrome()
         }
     }
