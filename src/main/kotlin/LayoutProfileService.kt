@@ -48,6 +48,7 @@ internal class LayoutProfileService : PersistentStateComponent<LayoutProfilesSta
 
     override fun loadState(state: LayoutProfilesState) {
         val activeNumber = state.activeSlot
+        val startupProfileId = state.startupProfileId
         state.slots = state.slots
             .filter { it.number > 0 && it.displayName.isNotBlank() }
             .distinctBy { it.number }
@@ -66,6 +67,9 @@ internal class LayoutProfileService : PersistentStateComponent<LayoutProfilesSta
             }
         }
         state.activeSlot = activeProfile?.let { state.slots.indexOf(it) + 1 } ?: 0
+        state.startupProfileId = startupProfileId.takeIf { id ->
+            state.slots.any { it.id == id }
+        }.orEmpty()
         savedState = state
     }
 
@@ -78,6 +82,22 @@ internal class LayoutProfileService : PersistentStateComponent<LayoutProfilesSta
     fun nextProfileNumber(): Int = savedState.slots.size + 1
 
     fun activeSlot(): LayoutProfile? = slot(savedState.activeSlot)
+
+    fun startupProfile(): LayoutProfile? = profile(savedState.startupProfileId)
+
+    fun setStartupProfile(id: String?) {
+        require(id == null || profile(id) != null)
+        savedState.startupProfileId = id.orEmpty()
+    }
+
+    fun bestMatch(topology: DisplayTopology = DisplayTopology.current()): LayoutProfile? =
+        profiles()
+            .mapNotNull { profile ->
+                topology.distanceTo(DisplayTopology.parse(profile.displayTopology))
+                    ?.let { distance -> profile to distance }
+            }
+            .minByOrNull { it.second }
+            ?.first
 
     fun exportProfiles(): Element = LayoutProfileInterchange.write(profiles())
 
@@ -95,6 +115,7 @@ internal class LayoutProfileService : PersistentStateComponent<LayoutProfilesSta
         val existingProfiles = profiles()
         val existingById = existingProfiles.associateBy(LayoutProfile::id)
         val activeId = activeSlot()?.id
+        val startupProfileId = startupProfile()?.id
         val selectedImports = when (mode) {
             ImportMode.ADD -> imported.profiles.filter { it.profile.id !in existingById }
             ImportMode.UPDATE_EXISTING -> imported.profiles.filter { it.profile.id in existingById }
@@ -130,6 +151,9 @@ internal class LayoutProfileService : PersistentStateComponent<LayoutProfilesSta
             } else {
                 slots.indexOfFirst { it.id == activeId }.takeIf { it >= 0 }?.plus(1) ?: 0
             }
+            this.startupProfileId = startupProfileId.takeIf { id ->
+                slots.any { it.id == id }
+            }.orEmpty()
         }
         val newLayouts = selectedImports.associate { importedProfile ->
             importedProfile.profile.nativeLayoutName to importedProfile.nativeLayout
@@ -202,6 +226,7 @@ internal class LayoutProfileService : PersistentStateComponent<LayoutProfilesSta
             .firstOrNull { it.id == activeId }
             ?.number
             ?: 0
+        if (startupProfile() == null) savedState.startupProfileId = ""
     }
 
     fun updateProfiles(updates: List<LayoutProfileUpdate>) {
@@ -225,6 +250,7 @@ internal class LayoutProfileService : PersistentStateComponent<LayoutProfilesSta
             .firstOrNull { it.id == activeId }
             ?.number
             ?: 0
+        if (startupProfile() == null) savedState.startupProfileId = ""
     }
 
     private fun layoutName(id: String): String = "[IDE Layout Profiles] Profile $id"
@@ -234,6 +260,7 @@ internal class LayoutProfileService : PersistentStateComponent<LayoutProfilesSta
 
 internal class LayoutProfilesState {
     var activeSlot: Int = 0
+    var startupProfileId: String = ""
     var slots: MutableList<LayoutProfile> = mutableListOf()
 }
 
@@ -251,6 +278,7 @@ internal class LayoutProfile {
     var showStatusBar: Boolean = true
     var editorTabPlacement: Int = -1
     var wideScreenSupport: Boolean = false
+    var displayTopology: String = ""
 
     fun applyChrome() {
         UISettings.getInstance().apply {
@@ -286,6 +314,7 @@ internal class LayoutProfile {
                 showStatusBar = ui.showStatusBar
                 editorTabPlacement = ui.editorTabPlacement
                 wideScreenSupport = ui.wideScreenSupport
+                displayTopology = DisplayTopology.current().serialize()
             }
         }
     }

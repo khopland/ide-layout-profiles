@@ -18,6 +18,9 @@
 - Added selected-profile export alongside full-profile export.
 - Added **Add New**, **Update Existing**, **Import as Copies**, and explicit **Replace All** import modes.
 - Added an **Update Profile** submenu for updating any saved profile from the Window menu.
+- Profiles now record display count, usable bounds, and scale when saved or updated.
+- Added manual **Apply Best Match**, with the chosen profile previewed in the action name.
+- Added a global **Startup Profile** selector that applies the chosen profile when projects open.
 
 ### Fixed
 

@@ -22,6 +22,7 @@ class LayoutProfilePlatformTest : BasePlatformTestCase() {
         assertNotNull(actions.getAction("io.github.khopland.ideLayoutProfiles.applySlot10"))
         assertNotNull(actions.getAction("io.github.khopland.ideLayoutProfiles.saveNew"))
         assertNotNull(actions.getAction("io.github.khopland.ideLayoutProfiles.updateActive"))
+        assertNotNull(actions.getAction("io.github.khopland.ideLayoutProfiles.applyBestMatch"))
         assertNotNull(actions.getAction("io.github.khopland.ideLayoutProfiles.applyActiveToAll"))
         assertNotNull(actions.getAction("io.github.khopland.ideLayoutProfiles.openSettings"))
         assertTrue(
@@ -29,6 +30,9 @@ class LayoutProfilePlatformTest : BasePlatformTestCase() {
         )
         assertTrue(
             actions.getAction("io.github.khopland.ideLayoutProfiles.updateProfile") is ActionGroup,
+        )
+        assertTrue(
+            actions.getAction("io.github.khopland.ideLayoutProfiles.startupProfile") is ActionGroup,
         )
         @Suppress("UnresolvedPluginConfigReference")
         assertNull(actions.getAction("io.github.khopland.ideLayoutProfiles.manage"))
@@ -186,6 +190,39 @@ class LayoutProfilePlatformTest : BasePlatformTestCase() {
         }
     }
 
+    fun testStartupProfileGroupListsEveryProfileAndMarksTheSelectedOne() {
+        val service = ApplicationManager.getApplication().getService(LayoutProfileService::class.java)
+
+        try {
+            service.loadState(LayoutProfilesState().apply {
+                startupProfileId = "focus"
+                slots = mutableListOf(
+                    LayoutProfile().apply {
+                        id = "work"
+                        number = 1
+                        displayName = "Work"
+                    },
+                    LayoutProfile().apply {
+                        id = "focus"
+                        number = 2
+                        displayName = "Focus"
+                    },
+                )
+            })
+
+            val group = ActionManager.getInstance()
+                .getAction("io.github.khopland.ideLayoutProfiles.startupProfile") as ActionGroup
+
+            assertEquals(
+                listOf("None", "Work", "✓ Focus"),
+                group.getChildren(null).map { it.templatePresentation.text },
+            )
+        } finally {
+            service.loadState(LayoutProfilesState())
+            syncProfileActions()
+        }
+    }
+
     fun testProfileActionKeepsItsUuidAcrossRenameAndReorder() {
         val service = ApplicationManager.getApplication().getService(LayoutProfileService::class.java)
         val actions = ActionManager.getInstance()
@@ -288,6 +325,10 @@ class LayoutProfilePlatformTest : BasePlatformTestCase() {
             ui.editorTabPlacement = SwingConstants.BOTTOM
             service.save(project, 1, "Portable")
             val profileId = service.slot(1)!!.id
+            val displayTopology = DisplayTopology(
+                listOf(DisplayMonitor(0, 24, 2560, 1416, 2.0, 2.0)),
+            ).serialize()
+            service.slot(1)!!.displayTopology = displayTopology
             val xml = JDOMUtil.write(service.exportProfiles())
 
             assertTrue(xml.contains("<ide-layout-profiles version=\"1\">"))
@@ -302,6 +343,7 @@ class LayoutProfilePlatformTest : BasePlatformTestCase() {
             assertEquals("Portable", restored.displayName)
             assertFalse(restored.showStatusBar)
             assertEquals(SwingConstants.BOTTOM, restored.editorTabPlacement)
+            assertEquals(displayTopology, restored.displayTopology)
             assertEquals(ApplyResult.APPLIED, service.apply(project, 1))
         } finally {
             while (service.profiles().isNotEmpty()) service.clear(1)

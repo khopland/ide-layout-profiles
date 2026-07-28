@@ -33,8 +33,13 @@
             <group id="io.github.khopland.ideLayoutProfiles.applyProfile"
                    class="io.github.khopland.ApplyLayoutProfileGroup"
                    popup="true"/>
+            <action id="io.github.khopland.ideLayoutProfiles.applyBestMatch"
+                    class="io.github.khopland.ApplyBestMatchLayoutProfileAction"/>
             <group id="io.github.khopland.ideLayoutProfiles.updateProfile"
                    class="io.github.khopland.UpdateLayoutProfileGroup"
+                   popup="true"/>
+            <group id="io.github.khopland.ideLayoutProfiles.startupProfile"
+                   class="io.github.khopland.StartupLayoutProfileGroup"
                    popup="true"/>
             <separator/>
 

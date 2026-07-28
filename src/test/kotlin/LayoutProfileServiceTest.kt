@@ -125,6 +125,58 @@ class LayoutProfileServiceTest {
     }
 
     @Test
+    fun `startup profile and display topology survive persistence`() {
+        val topology = DisplayTopology(
+            listOf(DisplayMonitor(0, 24, 2560, 1416, 2.0, 2.0)),
+        ).serialize()
+        val state = LayoutProfilesState().apply {
+            startupProfileId = "focus"
+            slots = mutableListOf(slot(1, "Focus").apply {
+                id = "focus"
+                displayTopology = topology
+            })
+        }
+
+        val restored = XmlSerializer.deserialize(
+            XmlSerializer.serialize(state),
+            LayoutProfilesState::class.java,
+        )
+        val service = LayoutProfileService().apply { loadState(restored) }
+
+        assertEquals("focus", service.startupProfile()?.id)
+        assertEquals(topology, service.profile("focus")?.displayTopology)
+    }
+
+    @Test
+    fun `best match prefers a profile with the closest display topology`() {
+        val singleDisplay = DisplayTopology(
+            listOf(DisplayMonitor(0, 24, 2560, 1416, 2.0, 2.0)),
+        )
+        val dualDisplay = DisplayTopology(
+            listOf(
+                DisplayMonitor(0, 24, 2560, 1416, 2.0, 2.0),
+                DisplayMonitor(2560, 0, 1920, 1040, 1.0, 1.0),
+            ),
+        )
+        val service = LayoutProfileService().apply {
+            loadState(LayoutProfilesState().apply {
+                slots = mutableListOf(
+                    slot(1, "Laptop").apply {
+                        id = "laptop"
+                        displayTopology = singleDisplay.serialize()
+                    },
+                    slot(2, "Desk").apply {
+                        id = "desk"
+                        displayTopology = dualDisplay.serialize()
+                    },
+                )
+            })
+        }
+
+        assertEquals("desk", service.bestMatch(dualDisplay)?.id)
+    }
+
+    @Test
     fun `reordering profiles preserves the active profile and native layouts`() {
         val service = LayoutProfileService()
         service.loadState(LayoutProfilesState().apply {

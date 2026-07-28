@@ -15,6 +15,7 @@ Each profile stores:
 - tool-window bar visibility
 - status bar visibility
 - editor tab placement and widescreen tool-window layout
+- display count, usable bounds, and scale for manual topology matching
 
 Profiles are shared across projects. Applying a profile restores the available tool windows in the focused project
 and the application-wide toolbar and status-bar settings in every open project window.
@@ -36,6 +37,10 @@ Profile-specific shortcuts survive profile renaming and reordering. The plugin p
 will not conflict with your existing keymap.
 
 Use **Apply Active to All Open Projects** to restore the active profile in every open IDE frame.
+
+Every save or update associates the profile with the current display topology. Use
+**Window → Layout Profiles → Apply Best Match** to apply the closest profile; the action name previews the selected
+profile. Use **Startup Profile** in the same menu to choose one global profile to apply whenever a project opens.
 
 Use **Import…**, **Export Selected…**, and **Export All…** in Settings to move complete profiles between IDE
 installations. The readable XML format is versioned and includes native tool-window layouts plus IDE chrome settings.

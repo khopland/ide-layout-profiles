@@ -68,6 +68,11 @@ internal object LayoutProfileInterchange {
             .setAttribute("status-bar", showStatusBar.toString())
             .setAttribute("editor-tab-placement", editorTabPlacement.toString())
             .setAttribute("widescreen", wideScreenSupport.toString())
+            .apply {
+                if (displayTopology.isNotBlank()) {
+                    setAttribute("display-topology", displayTopology)
+                }
+            }
 
     private fun Element.toImportedProfile(number: Int): ImportedProfile {
         val id = required("id").trim()
@@ -114,6 +119,7 @@ internal object LayoutProfileInterchange {
                 showStatusBar = ui.requiredBoolean("status-bar")
                 this.editorTabPlacement = editorTabPlacement
                 wideScreenSupport = ui.requiredBoolean("widescreen")
+                displayTopology = ui.getAttributeValue("display-topology").orEmpty()
             },
             nativeLayout.clone(),
         )

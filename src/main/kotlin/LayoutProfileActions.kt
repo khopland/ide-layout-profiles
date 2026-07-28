@@ -78,9 +78,32 @@ class UpdateLayoutProfileGroup : ActionGroup(), DumbAware {
     override fun getActionUpdateThread() = ActionUpdateThread.EDT
 }
 
+class StartupLayoutProfileGroup : ActionGroup(), DumbAware {
+    override fun getChildren(event: AnActionEvent?): Array<AnAction> {
+        val startupId = service().startupProfile()?.id
+        return buildList {
+            add(SelectStartupLayoutProfileAction(null, "None", startupId == null))
+            service().profiles().forEach { profile ->
+                add(
+                    SelectStartupLayoutProfileAction(
+                        profile.id,
+                        profile.displayName,
+                        profile.id == startupId,
+                    ),
+                )
+            }
+        }.toTypedArray()
+    }
+
+    override fun getActionUpdateThread() = ActionUpdateThread.EDT
+}
+
 class ProfileActionsStartupActivity : ProjectActivity {
     override suspend fun execute(project: Project) {
         syncProfileActions()
+        service().startupProfile()?.let { profile ->
+            service().apply(project, profile.number)
+        }
     }
 }
 
@@ -127,6 +150,34 @@ private class UpdateLayoutProfileAction(
     override fun getActionUpdateThread() = ActionUpdateThread.EDT
 }
 
+private class SelectStartupLayoutProfileAction(
+    private val profileId: String?,
+    displayName: String,
+    selected: Boolean,
+) : DumbAwareAction(profileActionName(displayName, selected)) {
+    override fun actionPerformed(event: AnActionEvent) {
+        val project = event.project ?: return
+        service().setStartupProfile(profileId)
+        if (profileId == null) {
+            notify(project, "notification.startupCleared")
+        } else {
+            notify(project, "notification.startupSet", service().profile(profileId)?.displayName ?: return)
+        }
+    }
+
+    override fun update(event: AnActionEvent) {
+        val profile = profileId?.let(service()::profile)
+        event.presentation.isEnabledAndVisible =
+            event.project != null && (profileId == null || profile != null)
+        event.presentation.text = profileActionName(
+            profile?.displayName ?: "None",
+            service().startupProfile()?.id == profileId,
+        )
+    }
+
+    override fun getActionUpdateThread() = ActionUpdateThread.EDT
+}
+
 private class ApplySavedProfileAction(private val profileId: String) : DumbAwareAction() {
     override fun actionPerformed(event: AnActionEvent) {
         val profile = service().profile(profileId) ?: return
@@ -154,6 +205,26 @@ class SaveNewLayoutProfileAction : DumbAwareAction() {
 
     override fun update(event: AnActionEvent) {
         event.presentation.isEnabled = event.project != null
+    }
+
+    override fun getActionUpdateThread() = ActionUpdateThread.EDT
+}
+
+class ApplyBestMatchLayoutProfileAction : DumbAwareAction() {
+    override fun actionPerformed(event: AnActionEvent) {
+        val project = event.project ?: return
+        val profile = service().bestMatch() ?: return
+        applyLayoutProfile(project, profile.number)
+    }
+
+    override fun update(event: AnActionEvent) {
+        val profile = event.project?.let { service().bestMatch() }
+        event.presentation.isEnabled = profile != null
+        event.presentation.text = if (profile == null) {
+            LayoutProfilesBundle.message("action.bestMatch.none.text")
+        } else {
+            LayoutProfilesBundle.message("action.bestMatch.text", profile.displayName)
+        }
     }
 
     override fun getActionUpdateThread() = ActionUpdateThread.EDT
