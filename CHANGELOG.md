@@ -9,8 +9,12 @@
 - Added **Update from Current** for the selected profile in Settings.
 - Added stable profile-specific Keymap actions that survive profile renaming and reordering.
 - Settings now shows shortcuts assigned to profile actions and the first ten slot aliases.
+- Profiles now capture editor-tab placement and the widescreen tool-window setting.
+- Added **Apply Active to All Open Projects** for multi-window workflows.
 
 ### Fixed
+
+- Settings actions now wrap onto additional rows instead of being clipped in narrow windows.
 
 ## [0.1.1]
 ### Changed

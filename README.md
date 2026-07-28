@@ -14,6 +14,7 @@ Each profile stores:
 - navigation bar visibility and position
 - tool-window bar visibility
 - status bar visibility
+- editor tab placement and widescreen tool-window layout
 
 Profiles are shared across projects. Applying a profile restores the available tool windows in the focused project
 and the application-wide toolbar and status-bar settings in every open project window.
@@ -32,6 +33,8 @@ first ten profiles are assigned to the **Apply Slot 1–10** actions.
 
 Profile-specific shortcuts survive profile renaming and reordering. The plugin provides no default shortcuts, so it
 will not conflict with your existing keymap.
+
+Use **Apply Active to All Open Projects** to restore the active profile in every open IDE frame.
 <!-- Plugin description end -->
 
 ## Compatibility

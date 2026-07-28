@@ -9,6 +9,7 @@ import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import java.awt.Component
 import java.awt.Container
 import javax.swing.JButton
+import javax.swing.SwingConstants
 
 class LayoutProfilePlatformTest : BasePlatformTestCase() {
     fun testPluginActionsAreRegistered() {
@@ -18,6 +19,7 @@ class LayoutProfilePlatformTest : BasePlatformTestCase() {
         assertNotNull(actions.getAction("io.github.khopland.ideLayoutProfiles.applySlot10"))
         assertNotNull(actions.getAction("io.github.khopland.ideLayoutProfiles.saveNew"))
         assertNotNull(actions.getAction("io.github.khopland.ideLayoutProfiles.updateActive"))
+        assertNotNull(actions.getAction("io.github.khopland.ideLayoutProfiles.applyActiveToAll"))
         assertNotNull(actions.getAction("io.github.khopland.ideLayoutProfiles.openSettings"))
         assertTrue(
             actions.getAction("io.github.khopland.ideLayoutProfiles.applyProfile") is ActionGroup,
@@ -50,6 +52,31 @@ class LayoutProfilePlatformTest : BasePlatformTestCase() {
             component.descendants()
                 .filterIsInstance<JButton>()
                 .any { it.text == "Update from Current" },
+        )
+        configurable.disposeUIResources()
+    }
+
+    fun testSettingsButtonsFitWhenThePageIsNarrow() {
+        val configurable = LayoutProfilesConfigurable(project)
+        val component = configurable.createComponent()
+        component.setSize(1200, 400)
+        component.layoutRecursively()
+        component.setSize(600, 400)
+        component.layoutRecursively()
+
+        val buttons = component.descendants()
+            .filterIsInstance<JButton>()
+            .toList()
+        val buttonBar = buttons.first { it.text == "Create New" }.parent
+
+        assertTrue(
+            "Every settings button should fit inside the button bar",
+            buttons.all { button ->
+                button.x >= 0 &&
+                    button.y >= 0 &&
+                    button.x + button.width <= buttonBar.width &&
+                    button.y + button.height <= buttonBar.height
+            },
         )
         configurable.disposeUIResources()
     }
@@ -138,21 +165,36 @@ class LayoutProfilePlatformTest : BasePlatformTestCase() {
             ui.showNewMainToolbar = true
             ui.showStatusBar = true
             ui.hideToolStripes = false
+            ui.editorTabPlacement = SwingConstants.BOTTOM
+            ui.wideScreenSupport = true
             service.save(project, 1, "Focus")
 
             ui.showNewMainToolbar = false
             ui.showStatusBar = false
             ui.hideToolStripes = true
+            ui.editorTabPlacement = SwingConstants.TOP
+            ui.wideScreenSupport = false
             service.updateActive(project)
 
             ui.showNewMainToolbar = true
             ui.showStatusBar = true
             ui.hideToolStripes = false
+            ui.editorTabPlacement = SwingConstants.BOTTOM
+            ui.wideScreenSupport = true
             assertEquals(ApplyResult.APPLIED, service.apply(project, 1))
             assertFalse(ui.showNewMainToolbar)
             assertFalse(ui.showStatusBar)
             assertTrue(ui.hideToolStripes)
+            assertEquals(SwingConstants.TOP, ui.editorTabPlacement)
+            assertFalse(ui.wideScreenSupport)
             assertEquals("Focus", service.activeSlot()?.displayName)
+
+            service.slot(1)!!.editorTabPlacement = -1
+            ui.editorTabPlacement = SwingConstants.BOTTOM
+            ui.wideScreenSupport = true
+            assertEquals(ApplyResult.APPLIED, service.apply(project, 1))
+            assertEquals(SwingConstants.BOTTOM, ui.editorTabPlacement)
+            assertTrue(ui.wideScreenSupport)
         } finally {
             service.clear(1)
             original.applyChrome()
@@ -198,10 +240,30 @@ class LayoutProfilePlatformTest : BasePlatformTestCase() {
         }
     }
 
+    fun testActiveProfileCanBeAppliedToEveryProject() {
+        val service = LayoutProfileService()
+
+        try {
+            service.save(project, 1, "Everywhere")
+            assertEquals(
+                ApplyResult.APPLIED,
+                service.apply(listOf(project, project), 1),
+            )
+            assertEquals("Everywhere", service.activeSlot()?.displayName)
+        } finally {
+            service.clear(1)
+        }
+    }
+
     private fun Container.descendants(): Sequence<Component> = sequence {
         components.forEach {
             yield(it)
             if (it is Container) yieldAll(it.descendants())
         }
+    }
+
+    private fun Container.layoutRecursively() {
+        doLayout()
+        components.filterIsInstance<Container>().forEach { it.layoutRecursively() }
     }
 }

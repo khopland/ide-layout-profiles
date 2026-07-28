@@ -93,11 +93,17 @@ internal class LayoutProfileService : PersistentStateComponent<LayoutProfilesSta
     }
 
     fun apply(project: Project, number: Int): ApplyResult {
-        val savedSlot = slot(number) ?: return ApplyResult.EMPTY
-        if (!PlatformLayoutAdapter.apply(project, savedSlot.nativeLayoutName)) return ApplyResult.MISSING_LAYOUT
+        return apply(listOf(project), number)
+    }
 
-        savedState.activeSlot = number
+    fun apply(projects: Iterable<Project>, number: Int): ApplyResult {
+        val savedSlot = slot(number) ?: return ApplyResult.EMPTY
+        if (!PlatformLayoutAdapter.exists(savedSlot.nativeLayoutName)) return ApplyResult.MISSING_LAYOUT
+
         savedSlot.applyChrome()
+        projects.filterNot(Project::isDisposed)
+            .forEach { PlatformLayoutAdapter.apply(it, savedSlot.nativeLayoutName) }
+        savedState.activeSlot = number
         return ApplyResult.APPLIED
     }
 
@@ -157,6 +163,8 @@ internal class LayoutProfile {
     var navigationBarLocation: String = NavBarLocation.TOP.name
     var hideToolStripes: Boolean = false
     var showStatusBar: Boolean = true
+    var editorTabPlacement: Int = -1
+    var wideScreenSupport: Boolean = false
 
     fun applyChrome() {
         UISettings.getInstance().apply {
@@ -169,6 +177,10 @@ internal class LayoutProfile {
                 ?: navBarLocation
             hideToolStripes = this@LayoutProfile.hideToolStripes
             showStatusBar = this@LayoutProfile.showStatusBar
+            if (this@LayoutProfile.editorTabPlacement >= 0) {
+                this.editorTabPlacement = this@LayoutProfile.editorTabPlacement
+                wideScreenSupport = this@LayoutProfile.wideScreenSupport
+            }
             fireUISettingsChanged()
         }
     }
@@ -186,6 +198,8 @@ internal class LayoutProfile {
                 navigationBarLocation = ui.navBarLocation.name
                 hideToolStripes = ui.hideToolStripes
                 showStatusBar = ui.showStatusBar
+                editorTabPlacement = ui.editorTabPlacement
+                wideScreenSupport = ui.wideScreenSupport
             }
         }
     }

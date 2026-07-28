@@ -85,6 +85,10 @@
                     class="io.github.khopland.UpdateActiveLayoutProfileAction">
                 <synonym key="action.updateActive.synonym"/>
             </action>
+            <action id="io.github.khopland.ideLayoutProfiles.applyActiveToAll"
+                    class="io.github.khopland.ApplyActiveLayoutProfileToAllProjectsAction">
+                <synonym key="action.applyActiveToAll.synonym"/>
+            </action>
             <separator/>
             <action id="io.github.khopland.ideLayoutProfiles.openSettings"
                     class="io.github.khopland.OpenLayoutProfileSettingsAction">

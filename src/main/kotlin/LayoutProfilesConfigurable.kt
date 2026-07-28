@@ -10,6 +10,9 @@ import com.intellij.ui.components.JBList
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.util.ui.JBUI
 import java.awt.BorderLayout
+import java.awt.Component
+import java.awt.Container
+import java.awt.Dimension
 import java.awt.FlowLayout
 import javax.swing.DefaultListCellRenderer
 import javax.swing.DefaultListModel
@@ -134,7 +137,7 @@ class LayoutProfilesConfigurable(private val project: Project) : SearchableConfi
         }
         list.addListSelectionListener { updateButtons() }
 
-        val buttons = JPanel(FlowLayout(FlowLayout.LEADING, JBUI.scale(8), 0)).apply {
+        val buttons = JPanel(WrappingFlowLayout(FlowLayout.LEADING, JBUI.scale(8), 0)).apply {
             add(createNew)
             add(rename)
             add(delete)
@@ -221,4 +224,49 @@ class LayoutProfilesConfigurable(private val project: Project) : SearchableConfi
         val id: String,
         val displayName: String,
     )
+}
+
+private class WrappingFlowLayout(
+    align: Int,
+    horizontalGap: Int,
+    verticalGap: Int,
+) : FlowLayout(align, horizontalGap, verticalGap) {
+    override fun preferredLayoutSize(target: Container): Dimension = layoutSize(target, false)
+
+    override fun minimumLayoutSize(target: Container): Dimension = layoutSize(target, true)
+
+    private fun layoutSize(target: Container, minimum: Boolean): Dimension {
+        val insets = target.insets
+        val parentWidth = target.parent?.let {
+            it.width - it.insets.left - it.insets.right
+        } ?: 0
+        val availableWidth = (parentWidth.takeIf { it > 0 } ?: target.width)
+            .takeIf { it > 0 }
+            ?.minus(insets.left + insets.right + hgap * 2)
+            ?: Int.MAX_VALUE
+        var width = 0
+        var height = 0
+        var rowWidth = 0
+        var rowHeight = 0
+
+        target.components.filter(Component::isVisible).forEach { component ->
+            val size = if (minimum) component.minimumSize else component.preferredSize
+            val gap = if (rowWidth == 0) 0 else hgap
+            if (rowWidth + gap + size.width > availableWidth) {
+                width = maxOf(width, rowWidth)
+                height += rowHeight + if (height == 0) 0 else vgap
+                rowWidth = size.width
+                rowHeight = size.height
+            } else {
+                rowWidth += gap + size.width
+                rowHeight = maxOf(rowHeight, size.height)
+            }
+        }
+        width = maxOf(width, rowWidth)
+        height += rowHeight
+        return Dimension(
+            width + insets.left + insets.right + hgap * 2,
+            height + insets.top + insets.bottom + vgap * 2,
+        )
+    }
 }

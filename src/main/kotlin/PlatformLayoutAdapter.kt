@@ -9,6 +9,9 @@ import com.intellij.toolWindow.ToolWindowDefaultLayoutManager
  * Keep the version-sensitive calls in this file and verify them against every target IDE.
  */
 internal object PlatformLayoutAdapter {
+    fun exists(layoutName: String): Boolean =
+        layoutName in ToolWindowDefaultLayoutManager.getInstance().getLayoutNames()
+
     fun save(project: Project, layoutName: String) {
         val projectLayouts = ToolWindowManagerEx.getInstanceEx(project)
         ToolWindowDefaultLayoutManager.getInstance().apply {
@@ -17,13 +20,10 @@ internal object PlatformLayoutAdapter {
         }
     }
 
-    fun apply(project: Project, layoutName: String): Boolean {
+    fun apply(project: Project, layoutName: String) {
         val layouts = ToolWindowDefaultLayoutManager.getInstance()
-        if (layoutName !in layouts.getLayoutNames()) return false
-
         layouts.activeLayoutName = layoutName
         ToolWindowManagerEx.getInstanceEx(project).setLayout(layouts.getLayoutCopy())
-        return true
     }
 
     fun delete(layoutName: String) {

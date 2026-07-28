@@ -13,6 +13,7 @@ import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.startup.ProjectActivity
 import com.intellij.openapi.ui.InputValidator
 import com.intellij.openapi.ui.Messages
@@ -144,6 +145,36 @@ class UpdateActiveLayoutProfileAction : DumbAwareAction() {
             LayoutProfilesBundle.message("action.update.none.text")
         } else {
             LayoutProfilesBundle.message("action.update.text",  active.displayName)
+        }
+    }
+
+    override fun getActionUpdateThread() = ActionUpdateThread.EDT
+}
+
+class ApplyActiveLayoutProfileToAllProjectsAction : DumbAwareAction() {
+    override fun actionPerformed(event: AnActionEvent) {
+        val project = event.project ?: return
+        val active = service().activeSlot() ?: return
+        val projects = ProjectManager.getInstance().openProjects.filterNot(Project::isDisposed)
+        when (service().apply(projects, active.number)) {
+            ApplyResult.APPLIED -> notify(
+                project,
+                "notification.appliedAll",
+                active.displayName,
+                projects.size,
+            )
+            ApplyResult.EMPTY -> notify(project, "notification.empty", active.number, warning = true)
+            ApplyResult.MISSING_LAYOUT -> notify(project, "notification.missing", active.number, warning = true)
+        }
+    }
+
+    override fun update(event: AnActionEvent) {
+        val active = service().activeSlot()
+        event.presentation.isEnabled = event.project != null && active != null
+        event.presentation.text = if (active == null) {
+            LayoutProfilesBundle.message("action.applyAll.none.text")
+        } else {
+            LayoutProfilesBundle.message("action.applyAll.text", active.displayName)
         }
     }
 

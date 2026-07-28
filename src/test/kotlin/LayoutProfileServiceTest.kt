@@ -5,6 +5,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import javax.swing.SwingConstants
 
 class LayoutProfileServiceTest {
     @Test
@@ -26,6 +27,7 @@ class LayoutProfileServiceTest {
         assertEquals(2, service.state.slots.size)
         assertEquals("Focus", service.activeSlot()?.displayName)
         assertEquals(3, service.nextProfileNumber())
+        assertEquals(-1, service.slot(1)?.editorTabPlacement)
     }
 
     @Test
@@ -61,6 +63,8 @@ class LayoutProfileServiceTest {
                 showNewMainToolbar = false
                 showStatusBar = false
                 hideToolStripes = true
+                editorTabPlacement = SwingConstants.BOTTOM
+                wideScreenSupport = true
             })
         }
 
@@ -75,6 +79,8 @@ class LayoutProfileServiceTest {
         assertFalse(slot.showNewMainToolbar)
         assertFalse(slot.showStatusBar)
         assertTrue(slot.hideToolStripes)
+        assertEquals(SwingConstants.BOTTOM, slot.editorTabPlacement)
+        assertTrue(slot.wideScreenSupport)
     }
 
     @Test
