@@ -7,6 +7,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.UUID
 import javax.swing.SwingConstants
 
 class LayoutProfileServiceTest {
@@ -19,6 +20,33 @@ class LayoutProfileServiceTest {
         }
 
         assertEquals("Unsupported profile export version.", error.message)
+    }
+
+    @Test
+    fun `import accepts legacy profiles without editor tab placement`() {
+        val profile = Element("profile")
+            .setAttribute("id", UUID.randomUUID().toString())
+            .setAttribute("name", "Legacy")
+            .addContent(
+                Element("ui")
+                    .setAttribute("main-toolbar", "true")
+                    .setAttribute("new-main-toolbar", "true")
+                    .setAttribute("main-menu", "true")
+                    .setAttribute("navigation-bar", "true")
+                    .setAttribute("navigation-bar-location", "TOP")
+                    .setAttribute("tool-window-bars-hidden", "false")
+                    .setAttribute("status-bar", "true")
+                    .setAttribute("editor-tab-placement", "-1")
+                    .setAttribute("widescreen", "false"),
+            )
+            .addContent(Element(LAYOUT_ELEMENT))
+        val root = Element("ide-layout-profiles")
+            .setAttribute("version", "1")
+            .addContent(profile)
+
+        val imported = LayoutProfileInterchange.read(root)
+
+        assertEquals(-1, imported.profiles.single().profile.editorTabPlacement)
     }
 
     @Test

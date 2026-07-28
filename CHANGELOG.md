@@ -16,6 +16,7 @@
 ### Fixed
 
 - Settings actions now wrap onto additional rows instead of being clipped in narrow windows.
+- Legacy profiles without a saved editor-tab placement can now be imported.
 
 ## [0.1.1]
 ### Changed

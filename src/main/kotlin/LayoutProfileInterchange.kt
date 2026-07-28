@@ -87,6 +87,7 @@ internal object LayoutProfileInterchange {
         val editorTabPlacement = ui.requiredInt("editor-tab-placement")
         require(
             editorTabPlacement in setOf(
+                -1,
                 SwingConstants.TOP,
                 SwingConstants.LEFT,
                 SwingConstants.BOTTOM,
