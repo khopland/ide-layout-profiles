@@ -3,6 +3,9 @@
 # IDE Layout Profiles Changelog
 ## [Unreleased]
 ### Changed
+
+- Import and export integration tests now run against every supported IntelliJ release line.
+
 ### Added
 
 - Added an **Apply Profile** submenu that lists every saved profile and marks the active one.
@@ -15,6 +18,8 @@
 
 ### Fixed
 
+- Import now prepares every native layout before replacing profiles and rolls back failed commits.
+- Settings actions no longer commit unrelated pending edits before Apply is pressed.
 - Settings actions now wrap onto additional rows instead of being clipped in narrow windows.
 - Legacy profiles without a saved editor-tab placement can now be imported.
 

@@ -1,4 +1,5 @@
 import org.jetbrains.changelog.markdownToHTML
+import org.jetbrains.intellij.platform.gradle.IntelliJPlatformType
 import org.jetbrains.intellij.platform.gradle.TestFrameworkType
 
 plugins {
@@ -41,6 +42,41 @@ intellijPlatform {
         privateKey = providers.environmentVariable("PRIVATE_KEY")
         password = providers.environmentVariable("PRIVATE_KEY_PASSWORD")
     }
+}
+
+val layoutInterchangeTestTasks = mapOf(
+    "testLayoutInterchange2025_3" to ("2025.3.6" to "253.33813.25"),
+    "testLayoutInterchange2026_1" to ("2026.1.4" to "261.26222.65"),
+    "testLayoutInterchange2026_2" to ("2026.2.0.1" to "262.8665.337"),
+)
+
+intellijPlatformTesting {
+    testIde {
+        layoutInterchangeTestTasks.forEach { (taskName, versions) ->
+            val (ideVersion, testFrameworkVersion) = versions
+            register(taskName) {
+                type = IntelliJPlatformType.IntellijIdea
+                version = ideVersion
+                testFramework(TestFrameworkType.Platform, testFrameworkVersion)
+                task {
+                    filter {
+                        includeTestsMatching(
+                            "io.github.khopland.LayoutProfilePlatformTest.testProfilesCanBeExportedAndImported",
+                        )
+                        includeTestsMatching(
+                            "io.github.khopland.LayoutProfilePlatformTest.testFailedImportRestoresExistingNativeLayouts",
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+tasks.register("testLayoutInterchangeAll") {
+    group = "verification"
+    description = "Runs native layout import/export tests against every supported IntelliJ release line."
+    dependsOn(layoutInterchangeTestTasks.keys)
 }
 
 tasks.processResources {

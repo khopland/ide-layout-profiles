@@ -77,10 +77,9 @@ class LayoutProfilesConfigurable(private val project: Project) : SearchableConfi
                 project,
                 LayoutProfilesBundle.message("dialog.save.defaultName", listModel.size + 1),
             ) ?: return@addActionListener
-            apply()
             val saved = saveNewLayoutProfile(project, name) ?: return@addActionListener
-            reset()
-            list.selectedIndex = saved.number - 1
+            listModel.addElement(ProfileDraft(saved.id, saved.displayName))
+            list.selectedIndex = listModel.size - 1
             updateButtons()
         }
         rename.addActionListener {
@@ -127,8 +126,7 @@ class LayoutProfilesConfigurable(private val project: Project) : SearchableConfi
         moveDown.addActionListener { move(1) }
         applyProfile.addActionListener {
             val selected = list.selectedValue ?: return@addActionListener
-            apply()
-            val profile = service().profiles().firstOrNull { it.id == selected.id } ?: return@addActionListener
+            val profile = service().profile(selected.id) ?: return@addActionListener
             when (service().apply(project, profile.number)) {
                 ApplyResult.APPLIED -> notify(project, "notification.applied", profile.displayName)
                 ApplyResult.EMPTY -> notify(project, "notification.empty", profile.number, warning = true)
@@ -138,7 +136,6 @@ class LayoutProfilesConfigurable(private val project: Project) : SearchableConfi
         }
         updateProfile.addActionListener {
             val selected = list.selectedValue ?: return@addActionListener
-            apply()
             val updated = service().update(project, selected.id) ?: return@addActionListener
             notify(project, "notification.updated", updated.displayName)
             list.repaint()
@@ -189,7 +186,6 @@ class LayoutProfilesConfigurable(private val project: Project) : SearchableConfi
                 .save("ide-layout-profiles.xml")
                 ?: return@addActionListener
             try {
-                apply()
                 JDOMUtil.write(service().exportProfiles(), file.file.toPath())
                 notify(project, "notification.exported", file.file.name)
             } catch (error: Exception) {

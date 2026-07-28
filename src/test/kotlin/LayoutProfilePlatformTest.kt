@@ -7,6 +7,8 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.options.Configurable
 import com.intellij.openapi.util.JDOMUtil
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
+import com.intellij.testFramework.fixtures.IdeaTestFixtureFactory
+import org.jdom.Element
 import java.awt.Component
 import java.awt.Container
 import javax.swing.JButton
@@ -90,6 +92,30 @@ class LayoutProfilePlatformTest : BasePlatformTestCase() {
             },
         )
         configurable.disposeUIResources()
+    }
+
+    fun testUpdatingFromCurrentDoesNotCommitPendingReorder() {
+        val service = ApplicationManager.getApplication().getService(LayoutProfileService::class.java)
+        val configurable = LayoutProfilesConfigurable(project)
+
+        try {
+            service.save(project, 1, "First")
+            service.save(project, 2, "Second")
+            val component = configurable.createComponent()
+            val buttons = component.descendants()
+                .filterIsInstance<JButton>()
+                .associateBy(JButton::getText)
+
+            buttons.getValue("Move Down").doClick()
+            buttons.getValue("Update from Current").doClick()
+
+            assertEquals(listOf("First", "Second"), service.profiles().map(LayoutProfile::displayName))
+            assertTrue(configurable.isModified)
+        } finally {
+            configurable.disposeUIResources()
+            while (service.profiles().isNotEmpty()) service.clear(1)
+            syncProfileActions()
+        }
     }
 
     fun testApplyProfileGroupListsEveryProfileAndMarksTheActiveOne() {
@@ -243,6 +269,56 @@ class LayoutProfilePlatformTest : BasePlatformTestCase() {
         }
     }
 
+    fun testFailedImportRestoresExistingNativeLayouts() {
+        val service = LayoutProfileService()
+
+        try {
+            service.save(project, 1, "Original")
+            val original = requireNotNull(service.slot(1))
+            val originalLayout = requireNotNull(PlatformLayoutAdapter.export(original.nativeLayoutName))
+            val originalLayoutXml = JDOMUtil.write(originalLayout)
+            val newProfileId = java.util.UUID.randomUUID().toString()
+            val replacementLayout = Element(LAYOUT_ELEMENT).apply {
+                addContent(Element("window_info").setAttribute("id", "Replacement"))
+            }
+            val invalidLayout = object : Element(LAYOUT_ELEMENT) {
+                override fun getChildren(name: String): List<Element> {
+                    error("Deliberate layout preparation failure")
+                }
+            }
+            val imported = ImportedProfiles(
+                listOf(
+                    ImportedProfile(
+                        LayoutProfile().apply {
+                            id = original.id
+                            displayName = "Replacement"
+                        },
+                        replacementLayout,
+                    ),
+                    ImportedProfile(
+                        LayoutProfile().apply {
+                            id = newProfileId
+                            displayName = "Invalid"
+                        },
+                        invalidLayout,
+                    ),
+                ),
+            )
+
+            assertNotNull(runCatching { service.importProfiles(imported) }.exceptionOrNull())
+            assertEquals(listOf("Original"), service.profiles().map(LayoutProfile::displayName))
+            assertEquals(
+                originalLayoutXml,
+                JDOMUtil.write(requireNotNull(PlatformLayoutAdapter.export(original.nativeLayoutName))),
+            )
+            assertFalse(
+                PlatformLayoutAdapter.exists("[IDE Layout Profiles] Profile $newProfileId"),
+            )
+        } finally {
+            while (service.profiles().isNotEmpty()) service.clear(1)
+        }
+    }
+
     fun testAnyProfileCanBeUpdatedById() {
         val ui = UISettings.getInstance()
         val original = LayoutProfile.capture(0, "Original")
@@ -284,16 +360,50 @@ class LayoutProfilePlatformTest : BasePlatformTestCase() {
 
     fun testActiveProfileCanBeAppliedToEveryProject() {
         val service = LayoutProfileService()
+        val secondFixture = IdeaTestFixtureFactory.getFixtureFactory()
+            .createFixtureBuilder("second-project")
+            .fixture
+        val markerLayoutName = "[IDE Layout Profiles Test] Marker"
+        val firstResultName = "[IDE Layout Profiles Test] First Result"
+        val secondResultName = "[IDE Layout Profiles Test] Second Result"
 
+        secondFixture.setUp()
         try {
             service.save(project, 1, "Everywhere")
+            val savedLayoutXml = JDOMUtil.write(
+                requireNotNull(PlatformLayoutAdapter.export(service.slot(1)!!.nativeLayoutName)),
+            )
+            PlatformLayoutAdapter.import(
+                markerLayoutName,
+                Element(LAYOUT_ELEMENT).apply {
+                    addContent(Element("window_info").setAttribute("id", "Second Project Marker"))
+                },
+            )
+            PlatformLayoutAdapter.apply(secondFixture.project, markerLayoutName)
+
+            assertNotSame(project, secondFixture.project)
             assertEquals(
                 ApplyResult.APPLIED,
-                service.apply(listOf(project, project), 1),
+                service.apply(listOf(project, secondFixture.project), 1),
+            )
+            PlatformLayoutAdapter.save(project, firstResultName)
+            PlatformLayoutAdapter.save(secondFixture.project, secondResultName)
+
+            assertEquals(
+                savedLayoutXml,
+                JDOMUtil.write(requireNotNull(PlatformLayoutAdapter.export(firstResultName))),
+            )
+            assertEquals(
+                savedLayoutXml,
+                JDOMUtil.write(requireNotNull(PlatformLayoutAdapter.export(secondResultName))),
             )
             assertEquals("Everywhere", service.activeSlot()?.displayName)
         } finally {
             service.clear(1)
+            PlatformLayoutAdapter.delete(markerLayoutName)
+            PlatformLayoutAdapter.delete(firstResultName)
+            PlatformLayoutAdapter.delete(secondResultName)
+            secondFixture.tearDown()
         }
     }
 

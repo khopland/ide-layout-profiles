@@ -76,12 +76,15 @@ internal class LayoutProfileService : PersistentStateComponent<LayoutProfilesSta
                 importedProfile.profile.apply {
                     number = index + 1
                     nativeLayoutName = layoutName(id)
-                    PlatformLayoutAdapter.import(nativeLayoutName, importedProfile.nativeLayout)
-                    oldLayoutNames.remove(nativeLayoutName)
                 }
             }.toMutableList()
         }
-        oldLayoutNames.forEach(PlatformLayoutAdapter::delete)
+        val newLayouts = newState.slots
+            .zip(imported.profiles)
+            .associate { (profile, importedProfile) ->
+                profile.nativeLayoutName to importedProfile.nativeLayout
+            }
+        PlatformLayoutAdapter.replace(newLayouts, oldLayoutNames - newLayouts.keys)
         loadState(newState)
         return newState.slots.size
     }
