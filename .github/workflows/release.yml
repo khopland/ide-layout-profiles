@@ -10,12 +10,11 @@ on:
 jobs:
 
   # Prepare and publish the plugin to JetBrains Marketplace repository
-  release:
+  publish:
     name: Publish Plugin
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      pull-requests: write
     steps:
 
       # Free GitHub Actions Environment Disk Space
@@ -44,6 +43,17 @@ jobs:
         with:
           cache-read-only: true
 
+      - name: Validate Release Version
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          PROJECT_VERSION=$(sed -n 's/^version=//p' gradle.properties)
+
+          if [[ ! "$PROJECT_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ || "v$PROJECT_VERSION" != "$RELEASE_TAG" ]]; then
+            echo "Release tag $RELEASE_TAG does not match stable project version $PROJECT_VERSION"
+            exit 1
+          fi
+
       # Update the Unreleased section with the current release note
       - name: Patch Changelog
         if: ${{ github.event.release.body != '' }}
@@ -71,9 +81,52 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release upload ${{ github.event.release.tag_name }} ./build/distributions/*
 
-      # Create a pull request
+  changelog:
+    name: Create Changelog Pull Request
+    needs: [ publish ]
+    if: ${{ github.event.release.body != '' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+
+      - name: Fetch Sources
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: zulu
+          java-version: 21
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-read-only: true
+
+      - name: Patch Changelog and Start Next Version
+        env:
+          CHANGELOG: ${{ github.event.release.body }}
+        run: |
+          RELEASE_NOTE="./build/tmp/release_note.txt"
+          mkdir -p "$(dirname "$RELEASE_NOTE")"
+          echo "$CHANGELOG" > $RELEASE_NOTE
+
+          ./gradlew patchChangelog --release-note-file=$RELEASE_NOTE
+
+          PROJECT_VERSION=$(sed -n 's/^version=//p' gradle.properties)
+          if [[ ! "$PROJECT_VERSION" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            echo "Cannot calculate the next version from $PROJECT_VERSION"
+            exit 1
+          fi
+
+          NEXT_VERSION="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.$((BASH_REMATCH[3] + 1))-SNAPSHOT"
+          sed -i "s/^version=.*/version=$NEXT_VERSION/" gradle.properties
+
       - name: Create Pull Request
-        if: ${{ github.event.release.body != '' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -81,12 +134,21 @@ jobs:
           BRANCH="changelog-update-$VERSION"
           LABEL="release changelog"
 
-          git config user.email "action@github.com"
-          git config user.name "GitHub Action"
+          if [[ $(gh pr list --head "$BRANCH" --state open --json number --jq length) -gt 0 ]]; then
+            echo "Pull request for $BRANCH already exists"
+            exit 0
+          fi
 
-          git checkout -b $BRANCH
-          git commit -am "Changelog update - $VERSION"
-          git push --set-upstream origin $BRANCH
+          if git ls-remote --exit-code --heads origin "$BRANCH" > /dev/null 2>&1; then
+            echo "Branch $BRANCH already exists"
+          else
+            git config user.email "action@github.com"
+            git config user.name "GitHub Action"
+
+            git checkout -b "$BRANCH"
+            git commit -am "Changelog update - $VERSION"
+            git push --set-upstream origin "$BRANCH"
+          fi
 
           gh label create "$LABEL" \
             --description "Pull requests with release changelog update" \
@@ -97,4 +159,4 @@ jobs:
             --title "Changelog update - \`$VERSION\`" \
             --body "Current pull request contains patched \`CHANGELOG.md\` file for the \`$VERSION\` version." \
             --label "$LABEL" \
-            --head $BRANCH
+            --head "$BRANCH"
