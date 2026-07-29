@@ -1,7 +1,11 @@
 <!-- Keep a Changelog guide -> https://keepachangelog.com -->
 
 # IDE Layout Profiles Changelog
-## [Unreleased]
+
+## Unreleased
+
+## 0.1.2 - 2026-07-29
+
 ### Changed
 
 - Import and export integration tests now run against every supported IntelliJ release line.
@@ -31,19 +35,18 @@
 - Invalid display-topology metadata is now rejected during import.
 - Startup profiles now report missing native layouts instead of failing silently.
 
-## [0.1.1]
+## 0.1.1
+
 ### Changed
 
 - Stopped capturing customized toolbar actions and individual status-bar widgets because IntelliJ exposes only internal APIs for those settings.
 
 ### Added
+
 - 10 key bindings profiles
 - unlimited profiles from settings
 
-### Fixed
-
-
-## [0.1.0]
+## 0.1.0
 
 ### Changed
 
