@@ -13,6 +13,7 @@ import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import com.intellij.testFramework.fixtures.IdeaTestFixtureFactory
 import kotlinx.coroutines.runBlocking
 import org.jdom.Element
+import org.junit.Assert.assertNotEquals
 import java.awt.Component
 import java.awt.Container
 import javax.swing.JButton
@@ -448,7 +449,7 @@ class LayoutProfilePlatformTest : BasePlatformTestCase() {
 
             assertEquals("Work Copy", copied.displayName)
             assertEquals(2, copied.number)
-            assertNotSame(source.id, copied.id)
+            assertNotEquals(source.id, copied.id)
             assertEquals(source.displayTopology, copied.displayTopology)
             assertEquals(source.capturedAtEpochMillis, copied.capturedAtEpochMillis)
             assertTrue(PlatformLayoutAdapter.exists(copied.nativeLayoutName))
@@ -485,7 +486,8 @@ class LayoutProfilePlatformTest : BasePlatformTestCase() {
             assertTrue(undo.hasSnapshot())
             assertTrue(
                 received?.actions?.any {
-                    it.templatePresentation.text == "Undo Layout Change"
+                    it.templatePresentation.text ==
+                        LayoutProfilesBundle.message("notification.undoAction")
                 } == true,
             )
             assertEquals(ApplyResult.APPLIED, undo.restore()?.result)

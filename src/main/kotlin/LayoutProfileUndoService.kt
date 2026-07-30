@@ -2,7 +2,9 @@ package io.github.khopland
 
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.Service
+import com.intellij.openapi.diagnostic.ControlFlowException
 import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.project.Project
 import java.lang.ref.WeakReference
 import java.util.UUID
@@ -42,6 +44,7 @@ internal class LayoutProfileUndoService : Disposable {
                 projects = capturedProjects,
             )
         } catch (error: Exception) {
+            rethrowControlFlow(error)
             capturedProjects.forEach { PlatformLayoutAdapter.delete(it.layoutName) }
             UNDO_LOG.warn("Could not capture the layout before applying a profile", error)
             null
@@ -74,7 +77,12 @@ internal class LayoutProfileUndoService : Disposable {
         val failures = mutableListOf<ApplyFailure>()
         var appliedProjects = 0
         try {
-            captured.chrome.applyChrome()
+            try {
+                captured.chrome.applyChrome()
+            } catch (error: Exception) {
+                rethrowControlFlow(error)
+                failures += ApplyFailure(null, error)
+            }
             captured.projects.forEach { savedProject ->
                 val project = savedProject.project.get()
                 if (project == null || project.isDisposed) return@forEach
@@ -82,11 +90,10 @@ internal class LayoutProfileUndoService : Disposable {
                     PlatformLayoutAdapter.applyTemporary(project, savedProject.layoutName)
                     appliedProjects += 1
                 } catch (error: Exception) {
+                    rethrowControlFlow(error)
                     failures += ApplyFailure(savedProject.projectName, error)
                 }
             }
-        } catch (error: Exception) {
-            failures += ApplyFailure(null, error)
         } finally {
             clearSnapshot(captured)
         }
@@ -111,5 +118,9 @@ internal class LayoutProfileUndoService : Disposable {
             runCatching { PlatformLayoutAdapter.delete(savedProject.layoutName) }
                 .onFailure { UNDO_LOG.debug("Could not delete a temporary undo layout", it) }
         }
+    }
+
+    private fun rethrowControlFlow(error: Exception) {
+        if (error is ProcessCanceledException || error is ControlFlowException) throw error
     }
 }

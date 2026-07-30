@@ -128,6 +128,7 @@ class LayoutProfilesConfigurable() : SearchableConfigurable {
                 notify(project, "notification.duplicated", copied.displayName)
                 updateButtons()
             } catch (error: Exception) {
+                if (error is ProcessCanceledException || error is ControlFlowException) throw error
                 showFileError(
                     error,
                     "Could not duplicate the layout profile.",

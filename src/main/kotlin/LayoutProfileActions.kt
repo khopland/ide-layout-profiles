@@ -454,7 +454,7 @@ internal fun applyLayoutProfileWithUndo(
         val captured = undo.capture(projects)
         val outcome = service().apply(projects, number)
         if (outcome.result == ApplyResult.APPLIED || outcome.result == ApplyResult.PARTIALLY_APPLIED) {
-            captured?.let(undo::remember)
+            if (captured != null) undo.remember(captured) else undo.clear()
         } else {
             undo.discard(captured)
         }
@@ -563,7 +563,7 @@ internal fun reportApplyOutcome(
 
 private fun undoNotificationAction(project: Project): AnAction? =
     if (undoService().hasSnapshot()) {
-        NotificationAction.createSimple("Undo Layout Change") {
+        NotificationAction.createSimple(LayoutProfilesBundle.message("notification.undoAction")) {
             restoreLastLayoutProfileApply(project)
         }
     } else {
