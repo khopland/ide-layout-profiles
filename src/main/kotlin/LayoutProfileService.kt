@@ -53,6 +53,11 @@ internal data class LayoutProfileUpdate(
     val displayName: String,
 )
 
+internal data class LayoutProfileHealth(
+    val nativeLayoutAvailable: Boolean,
+    val topologyAvailable: Boolean,
+)
+
 @Service(Service.Level.APP)
 @State(
     name = "io.github.khopland.ideLayoutProfiles",
@@ -112,6 +117,15 @@ internal class LayoutProfileService : PersistentStateComponent<LayoutProfilesSta
     @Synchronized
     fun profile(id: String): LayoutProfile? =
         savedState.slots.firstOrNull { it.id == id }?.deepCopy()
+
+    @Synchronized
+    fun profileHealth(id: String): LayoutProfileHealth? {
+        val profile = savedState.slots.firstOrNull { it.id == id } ?: return null
+        return LayoutProfileHealth(
+            nativeLayoutAvailable = PlatformLayoutAdapter.exists(profile.nativeLayoutName),
+            topologyAvailable = !DisplayTopology.parse(profile.displayTopology).isEmpty,
+        )
+    }
 
     @Synchronized
     fun nextProfileNumber(): Int = savedState.slots.size + 1
@@ -283,6 +297,21 @@ internal class LayoutProfileService : PersistentStateComponent<LayoutProfilesSta
     }
 
     @Synchronized
+    fun duplicate(id: String): LayoutProfile? {
+        val source = profile(id) ?: return null
+        val duplicateId = UUID.randomUUID().toString()
+        val duplicate = source.deepCopy().apply {
+            this.id = duplicateId
+            number = nextProfileNumber()
+            displayName = copyName(source.displayName)
+            nativeLayoutName = layoutName(duplicateId)
+        }
+        PlatformLayoutAdapter.copy(source.nativeLayoutName, duplicate.nativeLayoutName)
+        savedState.slots.add(duplicate)
+        return duplicate.deepCopy()
+    }
+
+    @Synchronized
     fun apply(project: Project, number: Int): ApplyOutcome {
         return apply(listOf(project), number)
     }
@@ -365,6 +394,15 @@ internal class LayoutProfileService : PersistentStateComponent<LayoutProfilesSta
     private fun layoutName(id: String): String = "[IDE Layout Profiles] Profile $id"
 
     private fun legacyLayoutName(number: Int): String = "[IDE Layout Profiles] Slot $number"
+
+    private fun copyName(displayName: String): String {
+        val usedNames = savedState.slots.mapTo(mutableSetOf(), LayoutProfile::displayName)
+        return generateSequence(1) { it + 1 }
+            .map { copyNumber ->
+                if (copyNumber == 1) "$displayName Copy" else "$displayName Copy $copyNumber"
+            }
+            .first { it !in usedNames }
+    }
 }
 
 internal class LayoutProfilesState {
@@ -398,6 +436,7 @@ internal class LayoutProfile {
     var editorTabPlacement: Int = -1
     var wideScreenSupport: Boolean = false
     var displayTopology: String = ""
+    var capturedAtEpochMillis: Long = 0
 
     fun deepCopy(): LayoutProfile = LayoutProfile().also { copy ->
         copy.id = id
@@ -414,6 +453,7 @@ internal class LayoutProfile {
         copy.editorTabPlacement = editorTabPlacement
         copy.wideScreenSupport = wideScreenSupport
         copy.displayTopology = displayTopology
+        copy.capturedAtEpochMillis = capturedAtEpochMillis
     }
 
     fun applyChrome() {
@@ -451,6 +491,7 @@ internal class LayoutProfile {
                 editorTabPlacement = ui.editorTabPlacement
                 wideScreenSupport = ui.wideScreenSupport
                 displayTopology = DisplayTopology.current().serialize()
+                capturedAtEpochMillis = System.currentTimeMillis()
             }
         }
     }

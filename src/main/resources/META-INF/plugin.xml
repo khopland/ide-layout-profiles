@@ -97,6 +97,10 @@
                     class="io.github.khopland.ApplyActiveLayoutProfileToAllProjectsAction">
                 <synonym key="action.applyActiveToAll.synonym"/>
             </action>
+            <action id="io.github.khopland.ideLayoutProfiles.undoLastApply"
+                    class="io.github.khopland.UndoLastLayoutProfileApplyAction">
+                <synonym key="action.undoLastApply.synonym"/>
+            </action>
             <separator/>
             <action id="io.github.khopland.ideLayoutProfiles.openSettings"
                     class="io.github.khopland.OpenLayoutProfileSettingsAction">

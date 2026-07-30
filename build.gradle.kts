@@ -92,6 +92,12 @@ intellijPlatformTesting {
                         includeTestsMatching(
                             "io.github.khopland.LayoutProfilePlatformTest.testStartupActivityReportsMissingNativeLayout",
                         )
+                        includeTestsMatching(
+                            "io.github.khopland.LayoutProfilePlatformTest.testProfileCanBeDuplicatedWithItsNativeLayout",
+                        )
+                        includeTestsMatching(
+                            "io.github.khopland.LayoutProfilePlatformTest.testActionDrivenApplyCanRestoreItsUndoSnapshot",
+                        )
                     }
                 }
             }

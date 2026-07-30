@@ -29,6 +29,7 @@ class LayoutProfilePlatformTest : BasePlatformTestCase() {
         assertNotNull(actions.getAction("io.github.khopland.ideLayoutProfiles.updateActive"))
         assertNotNull(actions.getAction("io.github.khopland.ideLayoutProfiles.applyBestMatch"))
         assertNotNull(actions.getAction("io.github.khopland.ideLayoutProfiles.applyActiveToAll"))
+        assertNotNull(actions.getAction("io.github.khopland.ideLayoutProfiles.undoLastApply"))
         assertNotNull(actions.getAction("io.github.khopland.ideLayoutProfiles.openSettings"))
         assertTrue(
             actions.getAction("io.github.khopland.ideLayoutProfiles.applyProfile") is ActionGroup,
@@ -62,6 +63,11 @@ class LayoutProfilePlatformTest : BasePlatformTestCase() {
             component.descendants()
                 .filterIsInstance<JButton>()
                 .any { it.text == "Create New" },
+        )
+        assertTrue(
+            component.descendants()
+                .filterIsInstance<JButton>()
+                .any { it.text == "Duplicate" },
         )
         assertTrue(
             component.descendants()
@@ -400,6 +406,7 @@ class LayoutProfilePlatformTest : BasePlatformTestCase() {
             ui.editorTabPlacement = SwingConstants.BOTTOM
             service.save(project, 1, "Portable")
             val profileId = service.slot(1)!!.id
+            val capturedAt = service.slot(1)!!.capturedAtEpochMillis
             val displayTopology = DisplayTopology(
                 listOf(DisplayMonitor(0, 24, 2560, 1416, 2.0, 2.0)),
             ).serialize()
@@ -409,6 +416,7 @@ class LayoutProfilePlatformTest : BasePlatformTestCase() {
             val xml = JDOMUtil.write(service.exportProfiles())
 
             assertTrue(xml.contains("<ide-layout-profiles version=\"1\">"))
+            assertTrue(xml.contains("captured-at=\"$capturedAt\""))
             assertTrue(xml.contains("<tool-window-layout>"))
 
             val imported = LayoutProfileInterchange.read(JDOMUtil.load(xml))
@@ -421,8 +429,70 @@ class LayoutProfilePlatformTest : BasePlatformTestCase() {
             assertFalse(restored.showStatusBar)
             assertEquals(SwingConstants.BOTTOM, restored.editorTabPlacement)
             assertEquals(displayTopology, restored.displayTopology)
+            assertEquals(capturedAt, restored.capturedAtEpochMillis)
             assertEquals(ApplyResult.APPLIED, service.apply(project, 1).result)
         } finally {
+            while (service.profiles().isNotEmpty()) service.clear(1)
+            original.applyChrome()
+        }
+    }
+
+    fun testProfileCanBeDuplicatedWithItsNativeLayout() {
+        val service = LayoutProfileService()
+
+        try {
+            service.save(project, 1, "Work")
+            val source = requireNotNull(service.slot(1))
+
+            val copied = requireNotNull(service.duplicate(source.id))
+
+            assertEquals("Work Copy", copied.displayName)
+            assertEquals(2, copied.number)
+            assertNotSame(source.id, copied.id)
+            assertEquals(source.displayTopology, copied.displayTopology)
+            assertEquals(source.capturedAtEpochMillis, copied.capturedAtEpochMillis)
+            assertTrue(PlatformLayoutAdapter.exists(copied.nativeLayoutName))
+            assertNotNull(PlatformLayoutAdapter.export(copied.nativeLayoutName))
+        } finally {
+            while (service.profiles().isNotEmpty()) service.clear(1)
+        }
+    }
+
+    fun testActionDrivenApplyCanRestoreItsUndoSnapshot() {
+        val ui = UISettings.getInstance()
+        val original = LayoutProfile.capture(0, "Original")
+        val service = ApplicationManager.getApplication().getService(LayoutProfileService::class.java)
+        val undo = ApplicationManager.getApplication().getService(LayoutProfileUndoService::class.java)
+        var received: Notification? = null
+        project.messageBus.connect(testRootDisposable).subscribe(
+            Notifications.TOPIC,
+            object : Notifications {
+                override fun notify(notification: Notification) {
+                    received = notification
+                }
+            },
+        )
+
+        try {
+            ui.showStatusBar = false
+            service.save(project, 1, "No Status")
+            ui.showStatusBar = true
+
+            val outcome = applyLayoutProfile(project, 1)
+
+            assertEquals(ApplyResult.APPLIED, outcome.result)
+            assertFalse(ui.showStatusBar)
+            assertTrue(undo.hasSnapshot())
+            assertTrue(
+                received?.actions?.any {
+                    it.templatePresentation.text == "Undo Layout Change"
+                } == true,
+            )
+            assertEquals(ApplyResult.APPLIED, undo.restore()?.result)
+            assertTrue(ui.showStatusBar)
+            assertFalse(undo.hasSnapshot())
+        } finally {
+            undo.clear()
             while (service.profiles().isNotEmpty()) service.clear(1)
             original.applyChrome()
         }
