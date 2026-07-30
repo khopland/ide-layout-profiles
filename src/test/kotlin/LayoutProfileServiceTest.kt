@@ -102,6 +102,24 @@ class LayoutProfileServiceTest {
     }
 
     @Test
+    fun `loaded and persisted state are isolated snapshots`() {
+        val source = LayoutProfilesState().apply {
+            slots = mutableListOf(slot(1, "Work").apply { id = "work" })
+        }
+        val service = LayoutProfileService()
+
+        service.loadState(source)
+        source.slots.single().displayName = "Changed outside the service"
+        val persisted = service.state
+        persisted.slots.single().displayName = "Changed persistence snapshot"
+        service.slot(1)?.displayName = "Changed slot snapshot"
+        service.profiles().single().displayName = "Changed profiles snapshot"
+
+        assertEquals("Work", service.slot(1)?.displayName)
+        assertEquals("Work", service.state.slots.single().displayName)
+    }
+
+    @Test
     fun `more than ten profiles can be stored and reordered`() {
         val service = LayoutProfileService()
         service.loadState(LayoutProfilesState().apply {
