@@ -40,7 +40,8 @@ Use **Apply Active to All Open Projects** to restore the active profile in every
 
 Every save or update associates the profile with the current display topology. Use
 **Window → Layout Profiles → Apply Best Match** to apply the closest profile; the action name previews the selected
-profile. Use **Startup Profile** in the same menu to choose one global profile to apply whenever a project opens.
+profile. Use **Startup Profile** in the same menu to choose one global profile or the best topology match whenever a
+project opens. Settings also provides an opt-in automatic switch after a display topology change remains stable.
 
 Use **Import…**, **Export Selected…**, and **Export All…** in Settings to move complete profiles between IDE
 installations. The readable XML format is versioned and includes native tool-window layouts plus IDE chrome settings.

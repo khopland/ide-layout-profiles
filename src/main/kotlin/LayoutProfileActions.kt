@@ -86,15 +86,32 @@ class UpdateLayoutProfileGroup : ActionGroup(), DumbAware {
 
 class StartupLayoutProfileGroup : ActionGroup(), DumbAware {
     override fun getChildren(event: AnActionEvent?): Array<AnAction> {
+        val startupMode = service().startupMode()
         val startupId = service().startupProfile()?.id
         return buildList {
-            add(SelectStartupLayoutProfileAction(null, "None", startupId == null))
+            add(
+                SelectStartupLayoutProfileAction(
+                    mode = StartupMode.NONE,
+                    profileId = null,
+                    displayName = "None",
+                    selected = startupMode == StartupMode.NONE,
+                ),
+            )
+            add(
+                SelectStartupLayoutProfileAction(
+                    mode = StartupMode.BEST_MATCH,
+                    profileId = null,
+                    displayName = "Best Match",
+                    selected = startupMode == StartupMode.BEST_MATCH,
+                ),
+            )
             service().profiles().forEach { profile ->
                 add(
                     SelectStartupLayoutProfileAction(
-                        profile.id,
-                        profile.displayName,
-                        profile.id == startupId,
+                        mode = StartupMode.PROFILE,
+                        profileId = profile.id,
+                        displayName = profile.displayName,
+                        selected = startupMode == StartupMode.PROFILE && profile.id == startupId,
                     ),
                 )
             }
@@ -107,7 +124,10 @@ class StartupLayoutProfileGroup : ActionGroup(), DumbAware {
 class ProfileActionsStartupActivity : ProjectActivity {
     override suspend fun execute(project: Project) {
         syncProfileActions()
-        service().startupProfile()?.let { profile ->
+        ApplicationManager.getApplication()
+            .getService(DisplayTopologyAutoSwitchService::class.java)
+            .refresh()
+        service().startupMatch()?.let { profile ->
             reportApplyOutcome(
                 project = project,
                 profile = profile,
@@ -161,27 +181,43 @@ private class UpdateLayoutProfileAction(
 }
 
 private class SelectStartupLayoutProfileAction(
+    private val mode: StartupMode,
     private val profileId: String?,
     displayName: String,
     selected: Boolean,
 ) : DumbAwareAction(profileActionName(displayName, selected)) {
     override fun actionPerformed(event: AnActionEvent) {
         val project = event.project ?: return
-        service().setStartupProfile(profileId)
-        if (profileId == null) {
-            notify(project, "notification.startupCleared")
-        } else {
-            notify(project, "notification.startupSet", service().profile(profileId)?.displayName ?: return)
+        when (mode) {
+            StartupMode.NONE -> {
+                service().setStartupProfile(null)
+                notify(project, "notification.startupCleared")
+            }
+            StartupMode.BEST_MATCH -> {
+                service().setStartupBestMatch()
+                notify(project, "notification.startupBestMatchSet")
+            }
+            StartupMode.PROFILE -> {
+                val selectedProfile = service().profile(profileId ?: return) ?: return
+                service().setStartupProfile(selectedProfile.id)
+                notify(project, "notification.startupSet", selectedProfile.displayName)
+            }
         }
     }
 
     override fun update(event: AnActionEvent) {
         val profile = profileId?.let(service()::profile)
         event.presentation.isEnabledAndVisible =
-            event.project != null && (profileId == null || profile != null)
+            event.project != null && (mode != StartupMode.PROFILE || profile != null)
         event.presentation.text = profileActionName(
-            profile?.displayName ?: "None",
-            service().startupProfile()?.id == profileId,
+            profile?.displayName ?: if (mode == StartupMode.BEST_MATCH) "Best Match" else "None",
+            when (mode) {
+                StartupMode.NONE -> service().startupMode() == StartupMode.NONE
+                StartupMode.BEST_MATCH -> service().startupMode() == StartupMode.BEST_MATCH
+                StartupMode.PROFILE ->
+                    service().startupMode() == StartupMode.PROFILE &&
+                        service().startupProfile()?.id == profileId
+            },
         )
     }
 
@@ -404,7 +440,7 @@ internal fun saveNewLayoutProfile(project: Project, name: String? = null): Layou
     return service().slot(number)
 }
 
-private fun reportApplyOutcome(
+internal fun reportApplyOutcome(
     project: Project,
     profile: LayoutProfile?,
     outcome: ApplyOutcome,

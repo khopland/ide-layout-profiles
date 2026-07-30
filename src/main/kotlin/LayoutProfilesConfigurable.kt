@@ -14,6 +14,7 @@ import com.intellij.openapi.options.SearchableConfigurable
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.util.JDOMUtil
+import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.components.JBList
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.util.ui.JBUI
@@ -25,6 +26,7 @@ import java.awt.FlowLayout
 import javax.swing.DefaultListCellRenderer
 import javax.swing.DefaultListModel
 import javax.swing.JButton
+import javax.swing.BoxLayout
 import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.JList
@@ -39,6 +41,7 @@ class LayoutProfilesConfigurable() : SearchableConfigurable {
     private var projectOverride: Project? = null
     private var model: DefaultListModel<ProfileDraft>? = null
     private var profileList: JBList<ProfileDraft>? = null
+    private var autoSwitchBestMatch: JBCheckBox? = null
 
     internal constructor(project: Project) : this() {
         projectOverride = project
@@ -69,6 +72,10 @@ class LayoutProfilesConfigurable() : SearchableConfigurable {
         val importProfiles = JButton("Import…")
         val exportSelected = JButton("Export Selected…")
         val exportAll = JButton("Export All…")
+        val autoSwitch = JBCheckBox(
+            "Automatically apply the best matching profile after the display layout changes",
+        )
+        autoSwitchBestMatch = autoSwitch
 
         fun updateButtons() {
             val index = list.selectedIndex
@@ -179,18 +186,23 @@ class LayoutProfilesConfigurable() : SearchableConfigurable {
             add(exportSelected)
             add(exportAll)
         }
-        return JPanel(BorderLayout(0, JBUI.scale(8))).apply {
-            border = JBUI.Borders.empty(8)
+        val introduction = JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            isOpaque = false
             add(
                 JLabel(
                     """
                     <html>Create, update, apply, and import take effect immediately.
-                    Rename, reorder, and delete take effect when you click Apply.<br>
+                    Rename, reorder, delete, and automation options take effect when you click Apply.<br>
                     The first ten profiles are assigned to the Apply Slot 1–10 keybindings.</html>
                     """.trimIndent(),
                 ),
-                BorderLayout.NORTH,
             )
+            add(autoSwitch)
+        }
+        return JPanel(BorderLayout(0, JBUI.scale(8))).apply {
+            border = JBUI.Borders.empty(8)
+            add(introduction, BorderLayout.NORTH)
             add(JBScrollPane(list), BorderLayout.CENTER)
             add(buttons, BorderLayout.SOUTH)
             reset()
@@ -198,10 +210,16 @@ class LayoutProfilesConfigurable() : SearchableConfigurable {
         }
     }
 
-    override fun isModified(): Boolean = drafts() != savedDrafts()
+    override fun isModified(): Boolean =
+        drafts() != savedDrafts() ||
+            autoSwitchBestMatch?.isSelected?.let { it != service().autoSwitchBestMatch() } == true
 
     override fun apply() {
         service().updateProfiles(drafts().map { LayoutProfileUpdate(it.id, it.displayName) })
+        autoSwitchBestMatch?.let { service().setAutoSwitchBestMatch(it.isSelected) }
+        ApplicationManager.getApplication()
+            .getService(DisplayTopologyAutoSwitchService::class.java)
+            .refresh()
         syncProfileActions()
     }
 
@@ -210,11 +228,13 @@ class LayoutProfilesConfigurable() : SearchableConfigurable {
         listModel.removeAllElements()
         savedDrafts().forEach(listModel::addElement)
         if (!listModel.isEmpty) profileList?.selectedIndex = 0
+        autoSwitchBestMatch?.isSelected = service().autoSwitchBestMatch()
     }
 
     override fun disposeUIResources() {
         model = null
         profileList = null
+        autoSwitchBestMatch = null
     }
 
     private fun chooseImportMode(profileCount: Int, project: Project?): ImportMode? {
