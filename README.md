@@ -50,14 +50,15 @@ keymap shortcuts remain managed separately by IntelliJ IDEA.
 
 ## Compatibility
 
-IDE Layout Profiles currently targets IntelliJ IDEA 2025.3 and newer.
+IDE Layout Profiles currently targets IntelliJ IDEA 2025.3 and newer. Native layout adapter tests cover the 2025.3,
+2026.1, and 2026.2 release lines.
 
 ## Development
 
 ```bash
 ./gradlew runIde
 ./gradlew check
-./gradlew testLayoutInterchangeAll
+./gradlew testLayoutAdapterAll
 ./gradlew verifyPlugin
 ./gradlew buildPlugin
 ```

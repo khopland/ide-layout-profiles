@@ -4,6 +4,12 @@
 
 ## Unreleased
 
+### Changed
+
+- Declared IntelliJ Platform compatibility with an explicit 2025.3 minimum and an open upper bound.
+- Expanded cross-release adapter tests to cover native layout save, apply, import, export, and rollback.
+- Configured Plugin Verifier for every supported IntelliJ IDEA release line and WebStorm 2026.2.
+
 ## 0.1.2 - 2026-07-29
 
 ### Changed
