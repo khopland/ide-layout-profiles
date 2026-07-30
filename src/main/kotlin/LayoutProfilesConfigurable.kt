@@ -4,6 +4,7 @@ import com.intellij.ide.DataManager
 import com.intellij.openapi.actionSystem.CommonDataKeys
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
+import com.intellij.openapi.diagnostic.ControlFlowException
 import com.intellij.openapi.fileChooser.FileChooser
 import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory
 import com.intellij.openapi.fileChooser.FileChooserFactory
@@ -11,6 +12,7 @@ import com.intellij.openapi.fileChooser.FileSaverDescriptor
 import com.intellij.openapi.keymap.KeymapManager
 import com.intellij.openapi.keymap.KeymapUtil
 import com.intellij.openapi.options.SearchableConfigurable
+import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.util.JDOMUtil
@@ -20,11 +22,14 @@ import com.intellij.ui.components.JBList
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.util.ui.JBUI
 import com.intellij.util.text.DateFormatUtil
+import org.jdom.JDOMException
 import java.awt.BorderLayout
 import java.awt.Component
 import java.awt.Container
 import java.awt.Dimension
 import java.awt.FlowLayout
+import java.io.IOException
+import java.nio.file.Path
 import javax.swing.DefaultListCellRenderer
 import javax.swing.DefaultListModel
 import javax.swing.JButton
@@ -191,7 +196,8 @@ class LayoutProfilesConfigurable() : SearchableConfigurable {
         importProfiles.addActionListener {
             val project = contextProject()
             val file = FileChooser.chooseFile(
-                FileChooserDescriptorFactory.createSingleFileDescriptor("xml")
+                FileChooserDescriptorFactory.singleFile()
+                    .withExtensionFilter("xml")
                     .withTitle("Import Layout Profiles"),
                 project,
                 null,
@@ -224,7 +230,7 @@ class LayoutProfilesConfigurable() : SearchableConfigurable {
             add(
                 JLabel(
                     """
-                    <html>Create, update, apply, and import take effect immediately.
+                    <html>Create, update, apply, and import take effect immediately.<br>
                     Rename, reorder, delete, and automation options take effect when you click Apply.<br>
                     The first ten profiles are assigned to the Apply Slot 1–10 keybindings.</html>
                     """.trimIndent(),
@@ -310,7 +316,7 @@ class LayoutProfilesConfigurable() : SearchableConfigurable {
             ?: return
         val exported = try {
             profileIds?.let(service()::exportProfiles) ?: service().exportProfiles()
-        } catch (error: Exception) {
+        } catch (error: IllegalArgumentException) {
             showFileError(
                 error,
                 "Could not export layout profiles.",
@@ -320,9 +326,12 @@ class LayoutProfilesConfigurable() : SearchableConfigurable {
             return
         }
         ApplicationManager.getApplication().executeOnPooledThread {
-            val failure = runCatching {
+            val failure = try {
                 JDOMUtil.write(exported, file.file.toPath())
-            }.exceptionOrNull()
+                null
+            } catch (error: IOException) {
+                error
+            }
             ApplicationManager.getApplication().invokeLater(
                 {
                     if (failure == null) {
@@ -342,13 +351,19 @@ class LayoutProfilesConfigurable() : SearchableConfigurable {
     }
 
     private fun loadProfiles(
-        file: java.nio.file.Path,
+        file: Path,
         project: Project?,
         updateButtons: () -> Unit,
     ) {
         ApplicationManager.getApplication().executeOnPooledThread {
-            val loaded = runCatching {
-                LayoutProfileInterchange.read(JDOMUtil.load(file))
+            val loaded = try {
+                Result.success(LayoutProfileInterchange.read(JDOMUtil.load(file)))
+            } catch (error: IOException) {
+                Result.failure(error)
+            } catch (error: JDOMException) {
+                Result.failure(error)
+            } catch (error: IllegalArgumentException) {
+                Result.failure(error)
             }
             ApplicationManager.getApplication().invokeLater(
                 {
@@ -388,6 +403,7 @@ class LayoutProfilesConfigurable() : SearchableConfigurable {
                 notify(project, "notification.importedSkipped", result.imported, result.skipped)
             }
         } catch (error: Exception) {
+            if (error is ProcessCanceledException || error is ControlFlowException) throw error
             showFileError(
                 error,
                 "Could not import layout profiles.",
@@ -406,7 +422,7 @@ class LayoutProfilesConfigurable() : SearchableConfigurable {
         if (project?.isDisposed == true) return
         Messages.showErrorDialog(
             project,
-            error.cause?.message ?: error.message ?: fallbackMessage,
+            error.message?.takeIf(String::isNotBlank) ?: fallbackMessage,
             title,
         )
     }
