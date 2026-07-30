@@ -4,14 +4,18 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.components.Service
+import com.intellij.openapi.diagnostic.ControlFlowException
+import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.util.concurrency.AppExecutorUtil
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
 
-private const val TOPOLOGY_POLL_SECONDS = 1L
+private const val TOPOLOGY_POLL_SECONDS = 2L
 private const val TOPOLOGY_DEBOUNCE_SECONDS = 3L
+private val LOG = logger<DisplayTopologyAutoSwitchService>()
 
 @Service(Service.Level.APP)
 internal class DisplayTopologyAutoSwitchService : Disposable {
@@ -27,7 +31,8 @@ internal class DisplayTopologyAutoSwitchService : Disposable {
             pollingTask = null
             return
         }
-        if (pollingTask != null) return
+        if (pollingTask?.isDone == false) return
+        pollingTask = null
 
         debouncer.reset(DisplayTopology.current())
         pollingTask = AppExecutorUtil.getAppScheduledExecutorService().scheduleWithFixedDelay(
@@ -39,6 +44,10 @@ internal class DisplayTopologyAutoSwitchService : Disposable {
     }
 
     private fun poll() {
+        runSafely("Display topology polling failed", ::pollOnce)
+    }
+
+    private fun pollOnce() {
         if (!profileService().autoSwitchBestMatch()) {
             refresh()
             return
@@ -47,7 +56,11 @@ internal class DisplayTopologyAutoSwitchService : Disposable {
         if (!debouncer.consumeIfStable(topology, System.nanoTime())) return
 
         ApplicationManager.getApplication().invokeLater(
-            { applyBestMatch(topology) },
+            {
+                runSafely("Could not apply the best matching layout profile") {
+                    applyBestMatch(topology)
+                }
+            },
             ModalityState.any(),
         )
     }
@@ -80,6 +93,15 @@ internal class DisplayTopologyAutoSwitchService : Disposable {
 
     private fun profileService(): LayoutProfileService =
         ApplicationManager.getApplication().getService(LayoutProfileService::class.java)
+
+    private fun runSafely(message: String, operation: () -> Unit) {
+        try {
+            operation()
+        } catch (error: Exception) {
+            if (error is ProcessCanceledException || error is ControlFlowException) throw error
+            LOG.warn(message, error)
+        }
+    }
 }
 
 internal class DisplayTopologyChangeDebouncer(
