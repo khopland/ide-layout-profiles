@@ -33,6 +33,10 @@ any saved profile with the current layout. Use
 **Settings → Tools → IDE Layout Profiles** to create, rename, delete, reorder, apply, or update saved profiles. The
 first ten profiles are assigned to the **Apply Slot 1–10** actions.
 
+Every action-driven apply keeps one temporary recovery snapshot. Use the notification’s **Undo Layout Change** action
+or **Window → Layout Profiles → Undo Last Apply** to restore it. Settings can also duplicate a profile and show its
+capture time, display topology, stored appearance flags, and missing-layout health.
+
 Profile-specific shortcuts survive profile renaming and reordering. The plugin provides no default shortcuts, so it
 will not conflict with your existing keymap.
 

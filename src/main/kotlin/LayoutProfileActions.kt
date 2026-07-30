@@ -1,11 +1,12 @@
 package io.github.khopland
 
 import com.intellij.notification.NotificationGroupManager
+import com.intellij.notification.NotificationAction
 import com.intellij.notification.NotificationType
+import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.ActionGroup
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.actionSystem.ActionUpdateThread
-import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.ControlFlowException
@@ -133,7 +134,7 @@ class ProfileActionsStartupActivity : ProjectActivity {
             reportApplyOutcome(
                 project = project,
                 profile = profile,
-                outcome = service().apply(project, profile.number),
+                outcome = applyLayoutProfileWithUndo(listOf(project), profile.number),
                 notifySuccess = false,
             )
         }
@@ -308,7 +309,7 @@ class ApplyActiveLayoutProfileToAllProjectsAction : DumbAwareAction() {
         reportApplyOutcome(
             project = project,
             profile = active,
-            outcome = service().apply(projects, active.number),
+            outcome = applyLayoutProfileWithUndo(projects, active.number),
             allProjects = true,
         )
     }
@@ -321,6 +322,19 @@ class ApplyActiveLayoutProfileToAllProjectsAction : DumbAwareAction() {
         } else {
             LayoutProfilesBundle.message("action.applyAll.text", active.displayName)
         }
+    }
+
+    override fun getActionUpdateThread() = ActionUpdateThread.EDT
+}
+
+class UndoLastLayoutProfileApplyAction : DumbAwareAction() {
+    override fun actionPerformed(event: AnActionEvent) {
+        restoreLastLayoutProfileApply(event.project ?: return)
+    }
+
+    override fun update(event: AnActionEvent) {
+        event.presentation.isEnabled =
+            event.project != null && undoService().hasSnapshot()
     }
 
     override fun getActionUpdateThread() = ActionUpdateThread.EDT
@@ -343,6 +357,9 @@ class OpenLayoutProfileSettingsAction : DumbAwareAction() {
 
 private fun service(): LayoutProfileService =
     ApplicationManager.getApplication().getService(LayoutProfileService::class.java)
+
+private fun undoService(): LayoutProfileUndoService =
+    ApplicationManager.getApplication().getService(LayoutProfileUndoService::class.java)
 
 private val bestMatchCache = BestMatchCache()
 
@@ -419,9 +436,30 @@ private fun profileActionName(displayName: String, active: Boolean): String =
 
 internal fun applyLayoutProfile(project: Project, number: Int): ApplyOutcome {
     val profile = service().slot(number)
-    val outcome = service().apply(project, number)
+    val outcome = applyLayoutProfileWithUndo(listOf(project), number)
     reportApplyOutcome(project, profile, outcome, slotNumber = number)
     return outcome
+}
+
+internal fun applyLayoutProfileWithUndo(
+    projects: List<Project>,
+    number: Int,
+): ApplyOutcome {
+    val profile = service().slot(number)
+    if (profile == null || !PlatformLayoutAdapter.exists(profile.nativeLayoutName)) {
+        return service().apply(projects, number)
+    }
+    val undo = undoService()
+    return synchronized(undo) {
+        val captured = undo.capture(projects)
+        val outcome = service().apply(projects, number)
+        if (outcome.result == ApplyResult.APPLIED || outcome.result == ApplyResult.PARTIALLY_APPLIED) {
+            if (captured != null) undo.remember(captured) else undo.clear()
+        } else {
+            undo.discard(captured)
+        }
+        outcome
+    }
 }
 
 internal fun updateLayoutProfile(project: Project, profileId: String): LayoutProfile? {
@@ -482,9 +520,15 @@ internal fun reportApplyOutcome(
                     "notification.appliedAll",
                     profileName,
                     outcome.appliedProjects,
+                    action = undoNotificationAction(project),
                 )
             } else {
-                notify(project, "notification.applied", profileName)
+                notify(
+                    project,
+                    "notification.applied",
+                    profileName,
+                    action = undoNotificationAction(project),
+                )
             }
         }
         ApplyResult.PARTIALLY_APPLIED -> notify(
@@ -494,6 +538,7 @@ internal fun reportApplyOutcome(
             outcome.appliedProjects,
             outcome.failures.size,
             warning = true,
+            action = undoNotificationAction(project),
         )
         ApplyResult.EMPTY -> notify(project, "notification.empty", slotNumber, warning = true)
         ApplyResult.MISSING_LAYOUT -> notify(
@@ -513,6 +558,37 @@ internal fun reportApplyOutcome(
             "notification.noTargetProjects",
             warning = true,
         )
+    }
+}
+
+private fun undoNotificationAction(project: Project): AnAction? =
+    if (undoService().hasSnapshot()) {
+        NotificationAction.createSimple(LayoutProfilesBundle.message("notification.undoAction")) {
+            restoreLastLayoutProfileApply(project)
+        }
+    } else {
+        null
+    }
+
+private fun restoreLastLayoutProfileApply(project: Project) {
+    val outcome = undoService().restore()
+    if (outcome == null) {
+        notify(project, "notification.undoUnavailable", warning = true)
+        return
+    }
+    outcome.failures.forEach { failure ->
+        LOG.warn("Failed to restore the layout before the last profile apply", failure.cause)
+    }
+    when (outcome.result) {
+        ApplyResult.APPLIED -> notify(project, "notification.undoApplied")
+        ApplyResult.PARTIALLY_APPLIED -> notify(
+            project,
+            "notification.undoPartial",
+            outcome.appliedProjects,
+            outcome.failures.size,
+            warning = true,
+        )
+        else -> notify(project, "notification.undoFailed", warning = true)
     }
 }
 
@@ -550,12 +626,19 @@ internal object NonBlankInputValidator : InputValidator {
     override fun canClose(inputString: String): Boolean = checkInput(inputString)
 }
 
-internal fun notify(project: Project?, key: String, vararg params: Any, warning: Boolean = false) {
-    NotificationGroupManager.getInstance()
+internal fun notify(
+    project: Project?,
+    key: String,
+    vararg params: Any,
+    warning: Boolean = false,
+    action: AnAction? = null,
+) {
+    val notification = NotificationGroupManager.getInstance()
         .getNotificationGroup(NOTIFICATION_GROUP)
         .createNotification(
             LayoutProfilesBundle.message(key, *params),
             if (warning) NotificationType.WARNING else NotificationType.INFORMATION,
         )
-        .notify(project)
+    action?.let(notification::addAction)
+    notification.notify(project)
 }

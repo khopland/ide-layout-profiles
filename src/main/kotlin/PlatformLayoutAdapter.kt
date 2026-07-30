@@ -21,10 +21,40 @@ internal object PlatformLayoutAdapter {
         }
     }
 
+    fun saveTemporary(project: Project, layoutName: String) {
+        val layouts = ToolWindowDefaultLayoutManager.getInstance()
+        val previousLayoutName = layouts.activeLayoutName
+        try {
+            layouts.setLayout(layoutName, ToolWindowManagerEx.getInstanceEx(project).getLayout())
+        } finally {
+            layouts.activeLayoutName = previousLayoutName
+        }
+    }
+
     fun apply(project: Project, layoutName: String) {
         val layouts = ToolWindowDefaultLayoutManager.getInstance()
         layouts.activeLayoutName = layoutName
         ToolWindowManagerEx.getInstanceEx(project).setLayout(layouts.getLayoutCopy())
+    }
+
+    fun applyTemporary(project: Project, layoutName: String) {
+        val layout = requireNotNull(layoutCopy(layoutName)) {
+            "The temporary layout “$layoutName” is missing."
+        }
+        val projectLayouts = ToolWindowManagerEx.getInstanceEx(project)
+        val setLayout = projectLayouts.javaClass.methods.firstOrNull { method ->
+            method.name == "setLayout" &&
+                method.parameterCount == 1 &&
+                method.parameterTypes.single().isAssignableFrom(layout.javaClass)
+        } ?: error("The IDE does not expose a compatible tool-window layout setter.")
+        setLayout.invoke(projectLayouts, layout)
+    }
+
+    fun copy(sourceLayoutName: String, targetLayoutName: String) {
+        val source = requireNotNull(layoutCopy(sourceLayoutName)) {
+            "The native layout “$sourceLayoutName” is missing."
+        }
+        setLayout(targetLayoutName, source)
     }
 
     fun export(layoutName: String): Element? {

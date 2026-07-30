@@ -7,6 +7,8 @@
 ### Added
 
 - Added a best-match startup mode and opt-in, debounced automatic switching after display topology changes.
+- Added a one-level undo snapshot with notification and Window-menu recovery actions.
+- Added profile duplication, capture timestamps, health warnings, and a Settings details view.
 
 ### Changed
 

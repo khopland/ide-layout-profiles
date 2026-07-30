@@ -30,6 +30,14 @@ internal object LayoutProfileInterchange {
                         Element(PROFILE_ELEMENT)
                             .setAttribute("id", profile.id)
                             .setAttribute("name", profile.displayName)
+                            .apply {
+                                if (profile.capturedAtEpochMillis > 0) {
+                                    setAttribute(
+                                        "captured-at",
+                                        profile.capturedAtEpochMillis.toString(),
+                                    )
+                                }
+                            }
                             .addContent(profile.uiElement())
                             .addContent(
                                 requireNotNull(
@@ -77,6 +85,12 @@ internal object LayoutProfileInterchange {
     private fun Element.toImportedProfile(number: Int): ImportedProfile {
         val id = required("id").trim()
         val displayName = required("name").trim()
+        val capturedAt = getAttributeValue("captured-at")?.let { encoded ->
+            encoded.toLongOrNull()?.takeIf { it >= 0 }
+                ?: throw IllegalArgumentException(
+                    "Profile “$displayName” has an invalid capture time.",
+                )
+        } ?: 0
         require(id.isNotEmpty()) { "Profile $number has no ID." }
         require(runCatching { UUID.fromString(id) }.isSuccess) {
             "Profile “$displayName” has an invalid ID."
@@ -124,6 +138,7 @@ internal object LayoutProfileInterchange {
                 this.editorTabPlacement = editorTabPlacement
                 wideScreenSupport = ui.requiredBoolean("widescreen")
                 this.displayTopology = displayTopology
+                capturedAtEpochMillis = capturedAt
             },
             nativeLayout.clone(),
         )

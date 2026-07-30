@@ -80,7 +80,7 @@ internal class DisplayTopologyAutoSwitchService : Disposable {
         reportApplyOutcome(
             project = reportingProject,
             profile = profile,
-            outcome = profileService().apply(projects, profile.number),
+            outcome = applyLayoutProfileWithUndo(projects, profile.number),
             allProjects = true,
         )
     }

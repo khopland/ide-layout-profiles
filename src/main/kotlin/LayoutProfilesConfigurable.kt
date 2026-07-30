@@ -16,10 +16,13 @@ import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.util.JDOMUtil
+import com.intellij.openapi.util.text.StringUtil
 import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.components.JBList
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.util.ui.JBUI
+import com.intellij.util.text.DateFormatUtil
+import org.jdom.JDOMException
 import java.awt.BorderLayout
 import java.awt.Component
 import java.awt.Container
@@ -37,7 +40,7 @@ import javax.swing.JList
 import javax.swing.JPanel
 import javax.swing.ListCellRenderer
 import javax.swing.ListSelectionModel
-import org.jdom.JDOMException
+import javax.swing.SwingConstants
 
 internal const val LAYOUT_PROFILE_SETTINGS_ID = "io.github.khopland.ideLayoutProfiles.settings"
 private const val SHORTCUT_SLOT_COUNT = 10
@@ -68,6 +71,7 @@ class LayoutProfilesConfigurable() : SearchableConfigurable {
         profileList = list
 
         val createNew = JButton("Create New")
+        val duplicate = JButton("Duplicate")
         val rename = JButton("Rename")
         val delete = JButton("Delete")
         val moveUp = JButton("Move Up")
@@ -80,10 +84,16 @@ class LayoutProfilesConfigurable() : SearchableConfigurable {
         val autoSwitch = JBCheckBox(
             "Automatically apply the best matching profile after the display layout changes",
         )
+        val details = JLabel().apply {
+            verticalAlignment = SwingConstants.TOP
+            border = JBUI.Borders.emptyLeft(12)
+            preferredSize = Dimension(JBUI.scale(280), JBUI.scale(220))
+        }
         autoSwitchBestMatch = autoSwitch
 
         fun updateButtons() {
             val index = list.selectedIndex
+            duplicate.isEnabled = index >= 0
             rename.isEnabled = index >= 0
             delete.isEnabled = index >= 0
             moveUp.isEnabled = index > 0
@@ -92,6 +102,8 @@ class LayoutProfilesConfigurable() : SearchableConfigurable {
             updateProfile.isEnabled = index >= 0
             exportSelected.isEnabled = index >= 0
             exportAll.isEnabled = !listModel.isEmpty
+            details.text = list.selectedValue?.let(::profileDetails)
+                ?: "<html><b>Profile details</b><br>Select a profile to inspect it.</html>"
         }
 
         createNew.addActionListener {
@@ -104,6 +116,26 @@ class LayoutProfilesConfigurable() : SearchableConfigurable {
             listModel.addElement(ProfileDraft(saved.id, saved.displayName))
             list.selectedIndex = listModel.size - 1
             updateButtons()
+        }
+        duplicate.addActionListener {
+            val project = contextProject()
+            val selected = list.selectedValue ?: return@addActionListener
+            try {
+                val copied = service().duplicate(selected.id) ?: return@addActionListener
+                listModel.addElement(ProfileDraft(copied.id, copied.displayName))
+                list.selectedIndex = listModel.size - 1
+                syncProfileActions()
+                notify(project, "notification.duplicated", copied.displayName)
+                updateButtons()
+            } catch (error: Exception) {
+                if (error is ProcessCanceledException || error is ControlFlowException) throw error
+                showFileError(
+                    error,
+                    "Could not duplicate the layout profile.",
+                    "Duplicate Layout Profile",
+                    project,
+                )
+            }
         }
         rename.addActionListener {
             val project = contextProject()
@@ -182,6 +214,7 @@ class LayoutProfilesConfigurable() : SearchableConfigurable {
 
         val buttons = JPanel(WrappingFlowLayout(FlowLayout.LEADING, JBUI.scale(8), 0)).apply {
             add(createNew)
+            add(duplicate)
             add(rename)
             add(delete)
             add(moveUp)
@@ -210,6 +243,7 @@ class LayoutProfilesConfigurable() : SearchableConfigurable {
             border = JBUI.Borders.empty(8)
             add(introduction, BorderLayout.NORTH)
             add(JBScrollPane(list), BorderLayout.CENTER)
+            add(details, BorderLayout.EAST)
             add(buttons, BorderLayout.SOUTH)
             reset()
             updateButtons()
@@ -417,6 +451,43 @@ class LayoutProfilesConfigurable() : SearchableConfigurable {
     private fun savedDrafts(): List<ProfileDraft> =
         service().profiles().map { ProfileDraft(it.id, it.displayName) }
 
+    private fun profileDetails(draft: ProfileDraft): String {
+        val profile = service().profile(draft.id) ?: return "<html>Profile not found.</html>"
+        val health = service().profileHealth(draft.id)
+        val topology = DisplayTopology.parse(profile.displayTopology)
+        val status = when {
+            health?.nativeLayoutAvailable == false -> "Missing native layout"
+            else -> "Ready"
+        }
+        val captured = profile.capturedAtEpochMillis
+            .takeIf { it > 0 }
+            ?.let(DateFormatUtil::formatDateTime)
+            ?: "Unknown (legacy profile)"
+        val topologyText = if (topology.isEmpty) {
+            "Not captured"
+        } else {
+            "${topology.monitors.size} display${if (topology.monitors.size == 1) "" else "s"}"
+        }
+        val name = StringUtil.escapeXmlEntities(profile.displayName)
+        return """
+            <html>
+            <b>$name</b><br>
+            Slot: ${profile.number}<br>
+            Status: $status<br>
+            Captured: $captured<br>
+            Topology: $topologyText<br><br>
+            <b>Stored appearance</b><br>
+            Main toolbar: ${onOff(profile.showNewMainToolbar)}<br>
+            Navigation bar: ${onOff(profile.showNavigationBar)} (${profile.navigationBarLocation})<br>
+            Tool-window bars: ${onOff(!profile.hideToolStripes)}<br>
+            Status bar: ${onOff(profile.showStatusBar)}<br>
+            Widescreen layout: ${onOff(profile.wideScreenSupport)}
+            </html>
+        """.trimIndent()
+    }
+
+    private fun onOff(enabled: Boolean): String = if (enabled) "On" else "Off"
+
     private fun service(): LayoutProfileService =
         ApplicationManager.getApplication().getService(LayoutProfileService::class.java)
 
@@ -444,9 +515,11 @@ class LayoutProfilesConfigurable() : SearchableConfigurable {
                 ?.let { " — $it" }
                 .orEmpty()
             val active = if (service().activeSlot()?.id == value.id) "✓ " else ""
+            val health = service().profileHealth(value.id)
+            val warning = if (health?.nativeLayoutAvailable == false) "⚠ " else ""
             renderer.getListCellRendererComponent(
                 list,
-                "$active${index + 1}. ${value.displayName}$shortcut",
+                "$warning$active${index + 1}. ${value.displayName}$shortcut",
                 index,
                 selected,
                 focused,
