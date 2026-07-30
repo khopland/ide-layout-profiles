@@ -687,6 +687,24 @@ class LayoutProfilePlatformTest : BasePlatformTestCase() {
         }
     }
 
+    fun testApplyWithNoTargetProjectsDoesNotActivateProfile() {
+        val service = LayoutProfileService()
+
+        try {
+            service.save(project, 1, "First")
+            service.save(project, 2, "Second")
+
+            val outcome = service.apply(emptyList(), 1)
+
+            assertEquals(ApplyResult.NO_TARGETS, outcome.result)
+            assertEquals(0, outcome.appliedProjects)
+            assertTrue(outcome.failures.isEmpty())
+            assertEquals("Second", service.activeSlot()?.displayName)
+        } finally {
+            while (service.profiles().isNotEmpty()) service.clear(1)
+        }
+    }
+
     private fun Container.descendants(): Sequence<Component> = sequence {
         components.forEach {
             yield(it)
