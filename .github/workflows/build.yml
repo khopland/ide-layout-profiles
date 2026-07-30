@@ -94,7 +94,7 @@ jobs:
 
       # Run tests
       - name: Run Tests
-        run: ./gradlew check testLayoutInterchangeAll
+        run: ./gradlew check testLayoutAdapterAll
 
       # Collect Tests Result of failed tests
       - name: Collect Tests Result
