@@ -7,6 +7,8 @@ import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.SettingsCategory
 import com.intellij.openapi.components.State
 import com.intellij.openapi.components.Storage
+import com.intellij.openapi.diagnostic.ControlFlowException
+import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.project.Project
 import org.jdom.Element
 import java.util.UUID
@@ -17,6 +19,7 @@ internal enum class ApplyResult {
     EMPTY,
     MISSING_LAYOUT,
     FAILED,
+    NO_TARGETS,
 }
 
 internal data class ApplyFailure(
@@ -137,16 +140,20 @@ internal class LayoutProfileService : PersistentStateComponent<LayoutProfilesSta
         return LayoutProfileInterchange.write(selected)
     }
 
-    @Synchronized
     fun importProfiles(imported: ImportedProfiles): Int =
         importProfiles(imported, ImportMode.REPLACE_ALL).imported
 
-    @Synchronized
     fun importProfiles(imported: ImportedProfiles, mode: ImportMode): ImportResult {
-        val existingProfiles = profiles()
+        val (existingProfiles, activeId, startupProfileId) = synchronized(this) {
+            Triple(
+                savedState.slots.map(LayoutProfile::deepCopy),
+                savedState.slots.firstOrNull { it.number == savedState.activeSlot }?.id,
+                savedState.startupProfileId.takeIf { startupId ->
+                    savedState.slots.any { it.id == startupId }
+                },
+            )
+        }
         val existingById = existingProfiles.associateBy(LayoutProfile::id)
-        val activeId = activeSlot()?.id
-        val startupProfileId = startupProfile()?.id
         val selectedImports = when (mode) {
             ImportMode.ADD -> imported.profiles.filter { it.profile.id !in existingById }
             ImportMode.UPDATE_EXISTING -> imported.profiles.filter { it.profile.id in existingById }
@@ -207,44 +214,46 @@ internal class LayoutProfileService : PersistentStateComponent<LayoutProfilesSta
         )
     }
 
-    @Synchronized
     fun save(project: Project, number: Int, displayName: String) {
-        require(number in 1..nextProfileNumber())
-        val current = slot(number)
+        val current = synchronized(this) {
+            require(number in 1..savedState.slots.size + 1)
+            savedState.slots.firstOrNull { it.number == number }?.deepCopy()
+        }
         val id = current?.id ?: UUID.randomUUID().toString()
         val savedSlot = LayoutProfile.capture(number, displayName.trim()).apply {
             this.id = id
             nativeLayoutName = current?.nativeLayoutName ?: layoutName(id)
         }
         PlatformLayoutAdapter.save(project, savedSlot.nativeLayoutName)
-        savedState.slots.removeAll { it.number == number }
-        savedState.slots.add(savedSlot)
-        savedState.slots.sortBy { it.number }
-        savedState.activeSlot = number
+        synchronized(this) {
+            savedState.slots.removeAll { it.number == number }
+            savedState.slots.add(savedSlot)
+            savedState.slots.sortBy { it.number }
+            savedState.activeSlot = number
+        }
     }
 
-    @Synchronized
     fun updateActive(project: Project): LayoutProfile? {
         val current = activeSlot() ?: return null
         return update(project, current.id)
     }
 
-    @Synchronized
     fun update(project: Project, id: String): LayoutProfile? {
         val current = profile(id) ?: return null
         save(project, current.number, current.displayName)
         return profile(id)
     }
 
-    @Synchronized
     fun apply(project: Project, number: Int): ApplyOutcome {
         return apply(listOf(project), number)
     }
 
-    @Synchronized
     fun apply(projects: Iterable<Project>, number: Int): ApplyOutcome {
-        val savedSlot = slot(number) ?: return ApplyOutcome(ApplyResult.EMPTY)
+        val savedSlot = synchronized(this) {
+            savedState.slots.firstOrNull { it.number == number }?.deepCopy()
+        } ?: return ApplyOutcome(ApplyResult.EMPTY)
         val targetProjects = projects.filterNot(Project::isDisposed)
+        if (targetProjects.isEmpty()) return ApplyOutcome(ApplyResult.NO_TARGETS)
         return try {
             if (!PlatformLayoutAdapter.exists(savedSlot.nativeLayoutName)) {
                 return ApplyOutcome(ApplyResult.MISSING_LAYOUT)
@@ -258,6 +267,7 @@ internal class LayoutProfileService : PersistentStateComponent<LayoutProfilesSta
                     PlatformLayoutAdapter.apply(project, savedSlot.nativeLayoutName)
                     appliedProjects += 1
                 } catch (error: Exception) {
+                    rethrowControlFlow(error)
                     failures += ApplyFailure(project.name, error)
                 }
             }
@@ -267,10 +277,16 @@ internal class LayoutProfileService : PersistentStateComponent<LayoutProfilesSta
                 else -> ApplyResult.FAILED
             }
             if (result == ApplyResult.APPLIED || result == ApplyResult.PARTIALLY_APPLIED) {
-                savedState.activeSlot = number
+                synchronized(this) {
+                    savedState.activeSlot = savedState.slots
+                        .firstOrNull { it.id == savedSlot.id }
+                        ?.number
+                        ?: savedState.activeSlot
+                }
             }
             ApplyOutcome(result, appliedProjects, failures)
         } catch (error: Exception) {
+            rethrowControlFlow(error)
             ApplyOutcome(
                 result = ApplyResult.FAILED,
                 failures = listOf(ApplyFailure(null, error)),
@@ -278,17 +294,25 @@ internal class LayoutProfileService : PersistentStateComponent<LayoutProfilesSta
         }
     }
 
-    @Synchronized
     fun clear(number: Int) {
-        val activeId = activeSlot()?.id
-        slot(number)?.let { PlatformLayoutAdapter.delete(it.nativeLayoutName) }
-        savedState.slots.removeAll { it.number == number }
-        savedState.slots.forEachIndexed { index, profile -> profile.number = index + 1 }
-        savedState.activeSlot = savedState.slots
-            .firstOrNull { it.id == activeId }
-            ?.number
-            ?: 0
-        if (startupProfile() == null) savedState.startupProfileId = ""
+        val cleared = synchronized(this) {
+            savedState.slots.firstOrNull { it.number == number }?.deepCopy()
+        }
+        cleared?.let { PlatformLayoutAdapter.delete(it.nativeLayoutName) }
+        synchronized(this) {
+            val activeId = savedState.slots
+                .firstOrNull { it.number == savedState.activeSlot }
+                ?.id
+            if (cleared != null) savedState.slots.removeAll { it.id == cleared.id }
+            savedState.slots.forEachIndexed { index, profile -> profile.number = index + 1 }
+            savedState.activeSlot = savedState.slots
+                .firstOrNull { it.id == activeId }
+                ?.number
+                ?: 0
+            if (savedState.slots.none { it.id == savedState.startupProfileId }) {
+                savedState.startupProfileId = ""
+            }
+        }
     }
 
     @Synchronized
@@ -319,6 +343,10 @@ internal class LayoutProfileService : PersistentStateComponent<LayoutProfilesSta
     private fun layoutName(id: String): String = "[IDE Layout Profiles] Profile $id"
 
     private fun legacyLayoutName(number: Int): String = "[IDE Layout Profiles] Slot $number"
+
+    private fun rethrowControlFlow(error: Exception) {
+        if (error is ProcessCanceledException || error is ControlFlowException) throw error
+    }
 }
 
 internal class LayoutProfilesState {

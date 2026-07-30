@@ -8,9 +8,11 @@ import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.diagnostic.ControlFlowException
+import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.options.ShowSettingsUtil
+import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.project.Project
@@ -26,7 +28,7 @@ private const val NOTIFICATION_GROUP = "IDE Layout Profiles"
 private const val PROFILE_ACTION_ID_PREFIX = "io.github.khopland.ideLayoutProfiles.profile."
 private val PLUGIN_ID = PluginId.getId("io.github.khopland.ide-layout-profiles")
 private val profileActionsLock = Any()
-private val LOG = logger<LayoutProfileService>()
+private val LOG = Logger.getInstance("io.github.khopland.LayoutProfileActions")
 private const val BEST_MATCH_CACHE_MILLIS = 2_000L
 
 internal fun profileActionId(profileId: String): String = "$PROFILE_ACTION_ID_PREFIX$profileId"
@@ -228,8 +230,10 @@ class ApplyBestMatchLayoutProfileAction : DumbAwareAction() {
     }
 
     override fun update(event: AnActionEvent) {
-        val profile = event.project?.let { bestMatchCache.current() }
-        event.presentation.isEnabled = profile != null
+        val hasProject = event.project != null
+        val profile = if (hasProject) bestMatchCache.current() else null
+        event.presentation.isEnabled =
+            hasProject && (!bestMatchCache.isInitialized() || profile != null)
         event.presentation.text = if (profile == null) {
             LayoutProfilesBundle.message("action.bestMatch.none.text")
         } else {
@@ -313,28 +317,41 @@ private class BestMatchCache {
     private var profileId: String? = null
 
     @Volatile
-    private var refreshedAtNanos: Long = Long.MIN_VALUE
+    private var refreshedAtNanos: Long? = null
+
+    @Volatile
+    private var initialized = false
 
     fun current(): LayoutProfile? {
         scheduleRefreshIfStale()
         return profileId?.let(service()::profile)
     }
 
+    fun isInitialized(): Boolean = initialized
+
     fun refresh(): LayoutProfile? {
-        val profile = service().bestMatch()
-        profileId = profile?.id
-        refreshedAtNanos = System.nanoTime()
-        return profile
+        try {
+            val profile = service().bestMatch()
+            profileId = profile?.id
+            initialized = true
+            return profile
+        } finally {
+            refreshedAtNanos = System.nanoTime()
+        }
     }
 
     private fun scheduleRefreshIfStale() {
-        val cacheAge = System.nanoTime() - refreshedAtNanos
-        if (cacheAge in 0 until TimeUnit.MILLISECONDS.toNanos(BEST_MATCH_CACHE_MILLIS)) return
+        val refreshedAt = refreshedAtNanos
+        if (refreshedAt != null) {
+            val cacheAge = System.nanoTime() - refreshedAt
+            if (cacheAge in 0 until TimeUnit.MILLISECONDS.toNanos(BEST_MATCH_CACHE_MILLIS)) return
+        }
         if (!refreshPending.compareAndSet(false, true)) return
         AppExecutorUtil.getAppExecutorService().execute {
             try {
                 refresh()
             } catch (error: Exception) {
+                rethrowControlFlow(error)
                 LOG.debug("Could not refresh the best matching layout profile", error)
             } finally {
                 refreshPending.set(false)
@@ -373,16 +390,19 @@ internal fun applyLayoutProfile(project: Project, number: Int): ApplyOutcome {
 
 internal fun updateLayoutProfile(project: Project, profileId: String): LayoutProfile? {
     val profile = service().profile(profileId) ?: return null
-    val updated = runProfileOperation(
+    return runProfileOperation(
         project = project,
         failureKey = "notification.updateFailed",
         failureParams = arrayOf(profile.displayName),
         description = "update layout profile ${profile.id}",
     ) {
         service().update(project, profileId)
-    } ?: return null
-    notify(project, "notification.updated", updated.displayName)
-    return updated
+    }.fold(
+        onSuccess = { updated ->
+            updated?.also { notify(project, "notification.updated", it.displayName) }
+        },
+        onFailure = { null },
+    )
 }
 
 internal fun saveNewLayoutProfile(project: Project, name: String? = null): LayoutProfile? {
@@ -391,14 +411,15 @@ internal fun saveNewLayoutProfile(project: Project, name: String? = null): Layou
         project,
         LayoutProfilesBundle.message("dialog.save.defaultName", number),
     ) ?: return null
-    runProfileOperation(
+    val saved = runProfileOperation(
         project = project,
         failureKey = "notification.saveFailed",
         failureParams = arrayOf(profileName),
         description = "save new layout profile",
     ) {
         service().save(project, number, profileName)
-    } ?: return null
+    }
+    if (saved.isFailure) return null
     syncProfileActions()
     notify(project, "notification.saved", profileName)
     return service().slot(number)
@@ -412,7 +433,7 @@ private fun reportApplyOutcome(
     notifySuccess: Boolean = true,
     slotNumber: Int = profile?.number ?: 0,
 ) {
-    val profileName = profile?.displayName ?: profile?.number?.toString().orEmpty()
+    val profileName = profile?.displayName.orEmpty()
     outcome.failures.forEach { failure ->
         val projectContext = failure.projectName?.let { " in project $it" }.orEmpty()
         LOG.warn("Failed to apply layout profile ${profile?.id.orEmpty()}$projectContext", failure.cause)
@@ -451,6 +472,11 @@ private fun reportApplyOutcome(
             profileName,
             warning = true,
         )
+        ApplyResult.NO_TARGETS -> notify(
+            project,
+            "notification.noTargetProjects",
+            warning = true,
+        )
     }
 }
 
@@ -460,12 +486,17 @@ private fun <T> runProfileOperation(
     failureParams: Array<out Any>,
     description: String,
     operation: () -> T,
-): T? = try {
-    operation()
+): Result<T> = try {
+    Result.success(operation())
 } catch (error: Exception) {
+    rethrowControlFlow(error)
     LOG.warn("Failed to $description", error)
     notify(project, failureKey, *failureParams, warning = true)
-    null
+    Result.failure(error)
+}
+
+private fun rethrowControlFlow(error: Exception) {
+    if (error is ProcessCanceledException || error is ControlFlowException) throw error
 }
 
 internal fun askForName(project: Project, initialValue: String): String? =
