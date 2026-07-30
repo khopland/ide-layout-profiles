@@ -18,11 +18,11 @@
                            bundle="messages.LayoutProfilesBundle"
                            key="notification.group.displayName"
                            isLogByDefault="true"/>
-        <projectConfigurable id="io.github.khopland.ideLayoutProfiles.settings"
-                             parentId="tools"
-                             bundle="messages.LayoutProfilesBundle"
-                             key="settings.displayName"
-                             instance="io.github.khopland.LayoutProfilesConfigurable"/>
+        <applicationConfigurable id="io.github.khopland.ideLayoutProfiles.settings"
+                                 parentId="tools"
+                                 bundle="messages.LayoutProfilesBundle"
+                                 key="settings.displayName"
+                                 instance="io.github.khopland.LayoutProfilesConfigurable"/>
         <postStartupActivity implementation="io.github.khopland.ProfileActionsStartupActivity"/>
     </extensions>
 

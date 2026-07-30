@@ -7,15 +7,31 @@ import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.SettingsCategory
 import com.intellij.openapi.components.State
 import com.intellij.openapi.components.Storage
+import com.intellij.openapi.diagnostic.ControlFlowException
+import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.project.Project
 import org.jdom.Element
 import java.util.UUID
 
 internal enum class ApplyResult {
     APPLIED,
+    PARTIALLY_APPLIED,
     EMPTY,
     MISSING_LAYOUT,
+    FAILED,
+    NO_TARGETS,
 }
+
+internal data class ApplyFailure(
+    val projectName: String?,
+    val cause: Exception,
+)
+
+internal data class ApplyOutcome(
+    val result: ApplyResult,
+    val appliedProjects: Int = 0,
+    val failures: List<ApplyFailure> = emptyList(),
+)
 
 internal enum class ImportMode {
     ADD,
@@ -44,19 +60,22 @@ internal class LayoutProfileService : PersistentStateComponent<LayoutProfilesSta
     @Volatile
     private var savedState = LayoutProfilesState()
 
-    override fun getState(): LayoutProfilesState = savedState
+    @Synchronized
+    override fun getState(): LayoutProfilesState = savedState.deepCopy()
 
+    @Synchronized
     override fun loadState(state: LayoutProfilesState) {
-        val activeNumber = state.activeSlot
-        val startupProfileId = state.startupProfileId
-        state.slots = state.slots
+        val normalizedState = state.deepCopy()
+        val activeNumber = normalizedState.activeSlot
+        val startupProfileId = normalizedState.startupProfileId
+        normalizedState.slots = normalizedState.slots
             .filter { it.number > 0 && it.displayName.isNotBlank() }
             .distinctBy { it.number }
             .sortedBy { it.number }
             .toMutableList()
-        val activeProfile = state.slots.firstOrNull { it.number == activeNumber }
+        val activeProfile = normalizedState.slots.firstOrNull { it.number == activeNumber }
         val usedIds = mutableSetOf<String>()
-        state.slots.forEachIndexed { index, profile ->
+        normalizedState.slots.forEachIndexed { index, profile ->
             if (profile.nativeLayoutName.isBlank()) {
                 profile.nativeLayoutName = legacyLayoutName(profile.number)
             }
@@ -66,30 +85,41 @@ internal class LayoutProfileService : PersistentStateComponent<LayoutProfilesSta
                 usedIds.add(profile.id)
             }
         }
-        state.activeSlot = activeProfile?.let { state.slots.indexOf(it) + 1 } ?: 0
-        state.startupProfileId = startupProfileId.takeIf { id ->
-            state.slots.any { it.id == id }
+        normalizedState.activeSlot = activeProfile?.let { normalizedState.slots.indexOf(it) + 1 } ?: 0
+        normalizedState.startupProfileId = startupProfileId.takeIf { id ->
+            normalizedState.slots.any { it.id == id }
         }.orEmpty()
-        savedState = state
+        savedState = normalizedState
     }
 
-    fun slot(number: Int): LayoutProfile? = savedState.slots.firstOrNull { it.number == number }
+    @Synchronized
+    fun slot(number: Int): LayoutProfile? =
+        savedState.slots.firstOrNull { it.number == number }?.deepCopy()
 
-    fun profiles(): List<LayoutProfile> = savedState.slots.sortedBy { it.number }
+    @Synchronized
+    fun profiles(): List<LayoutProfile> =
+        savedState.slots.sortedBy { it.number }.map(LayoutProfile::deepCopy)
 
-    fun profile(id: String): LayoutProfile? = savedState.slots.firstOrNull { it.id == id }
+    @Synchronized
+    fun profile(id: String): LayoutProfile? =
+        savedState.slots.firstOrNull { it.id == id }?.deepCopy()
 
+    @Synchronized
     fun nextProfileNumber(): Int = savedState.slots.size + 1
 
+    @Synchronized
     fun activeSlot(): LayoutProfile? = slot(savedState.activeSlot)
 
+    @Synchronized
     fun startupProfile(): LayoutProfile? = profile(savedState.startupProfileId)
 
+    @Synchronized
     fun setStartupProfile(id: String?) {
         require(id == null || profile(id) != null)
         savedState.startupProfileId = id.orEmpty()
     }
 
+    @Synchronized
     fun bestMatch(topology: DisplayTopology = DisplayTopology.current()): LayoutProfile? =
         profiles()
             .mapNotNull { profile ->
@@ -99,8 +129,10 @@ internal class LayoutProfileService : PersistentStateComponent<LayoutProfilesSta
             .minByOrNull { it.second }
             ?.first
 
+    @Synchronized
     fun exportProfiles(): Element = LayoutProfileInterchange.write(profiles())
 
+    @Synchronized
     fun exportProfiles(profileIds: Set<String>): Element {
         require(profileIds.isNotEmpty())
         val selected = profiles().filter { it.id in profileIds }
@@ -112,10 +144,16 @@ internal class LayoutProfileService : PersistentStateComponent<LayoutProfilesSta
         importProfiles(imported, ImportMode.REPLACE_ALL).imported
 
     fun importProfiles(imported: ImportedProfiles, mode: ImportMode): ImportResult {
-        val existingProfiles = profiles()
+        val (existingProfiles, activeId, startupProfileId) = synchronized(this) {
+            Triple(
+                savedState.slots.map(LayoutProfile::deepCopy),
+                savedState.slots.firstOrNull { it.number == savedState.activeSlot }?.id,
+                savedState.startupProfileId.takeIf { startupId ->
+                    savedState.slots.any { it.id == startupId }
+                },
+            )
+        }
         val existingById = existingProfiles.associateBy(LayoutProfile::id)
-        val activeId = activeSlot()?.id
-        val startupProfileId = startupProfile()?.id
         val selectedImports = when (mode) {
             ImportMode.ADD -> imported.profiles.filter { it.profile.id !in existingById }
             ImportMode.UPDATE_EXISTING -> imported.profiles.filter { it.profile.id in existingById }
@@ -177,18 +215,22 @@ internal class LayoutProfileService : PersistentStateComponent<LayoutProfilesSta
     }
 
     fun save(project: Project, number: Int, displayName: String) {
-        require(number in 1..nextProfileNumber())
-        val current = slot(number)
+        val current = synchronized(this) {
+            require(number in 1..savedState.slots.size + 1)
+            savedState.slots.firstOrNull { it.number == number }?.deepCopy()
+        }
         val id = current?.id ?: UUID.randomUUID().toString()
         val savedSlot = LayoutProfile.capture(number, displayName.trim()).apply {
             this.id = id
             nativeLayoutName = current?.nativeLayoutName ?: layoutName(id)
         }
         PlatformLayoutAdapter.save(project, savedSlot.nativeLayoutName)
-        savedState.slots.removeAll { it.number == number }
-        savedState.slots.add(savedSlot)
-        savedState.slots.sortBy { it.number }
-        savedState.activeSlot = number
+        synchronized(this) {
+            savedState.slots.removeAll { it.number == number }
+            savedState.slots.add(savedSlot)
+            savedState.slots.sortBy { it.number }
+            savedState.activeSlot = number
+        }
     }
 
     fun updateActive(project: Project): LayoutProfile? {
@@ -202,33 +244,78 @@ internal class LayoutProfileService : PersistentStateComponent<LayoutProfilesSta
         return profile(id)
     }
 
-    fun apply(project: Project, number: Int): ApplyResult {
+    fun apply(project: Project, number: Int): ApplyOutcome {
         return apply(listOf(project), number)
     }
 
-    fun apply(projects: Iterable<Project>, number: Int): ApplyResult {
-        val savedSlot = slot(number) ?: return ApplyResult.EMPTY
-        if (!PlatformLayoutAdapter.exists(savedSlot.nativeLayoutName)) return ApplyResult.MISSING_LAYOUT
+    fun apply(projects: Iterable<Project>, number: Int): ApplyOutcome {
+        val savedSlot = synchronized(this) {
+            savedState.slots.firstOrNull { it.number == number }?.deepCopy()
+        } ?: return ApplyOutcome(ApplyResult.EMPTY)
+        val targetProjects = projects.filterNot(Project::isDisposed)
+        if (targetProjects.isEmpty()) return ApplyOutcome(ApplyResult.NO_TARGETS)
+        return try {
+            if (!PlatformLayoutAdapter.exists(savedSlot.nativeLayoutName)) {
+                return ApplyOutcome(ApplyResult.MISSING_LAYOUT)
+            }
 
-        savedSlot.applyChrome()
-        projects.filterNot(Project::isDisposed)
-            .forEach { PlatformLayoutAdapter.apply(it, savedSlot.nativeLayoutName) }
-        savedState.activeSlot = number
-        return ApplyResult.APPLIED
+            savedSlot.applyChrome()
+            val failures = mutableListOf<ApplyFailure>()
+            var appliedProjects = 0
+            targetProjects.forEach { project ->
+                try {
+                    PlatformLayoutAdapter.apply(project, savedSlot.nativeLayoutName)
+                    appliedProjects += 1
+                } catch (error: Exception) {
+                    rethrowControlFlow(error)
+                    failures += ApplyFailure(project.name, error)
+                }
+            }
+            val result = when {
+                failures.isEmpty() -> ApplyResult.APPLIED
+                appliedProjects > 0 -> ApplyResult.PARTIALLY_APPLIED
+                else -> ApplyResult.FAILED
+            }
+            if (result == ApplyResult.APPLIED || result == ApplyResult.PARTIALLY_APPLIED) {
+                synchronized(this) {
+                    savedState.activeSlot = savedState.slots
+                        .firstOrNull { it.id == savedSlot.id }
+                        ?.number
+                        ?: savedState.activeSlot
+                }
+            }
+            ApplyOutcome(result, appliedProjects, failures)
+        } catch (error: Exception) {
+            rethrowControlFlow(error)
+            ApplyOutcome(
+                result = ApplyResult.FAILED,
+                failures = listOf(ApplyFailure(null, error)),
+            )
+        }
     }
 
     fun clear(number: Int) {
-        val activeId = activeSlot()?.id
-        slot(number)?.let { PlatformLayoutAdapter.delete(it.nativeLayoutName) }
-        savedState.slots.removeAll { it.number == number }
-        savedState.slots.forEachIndexed { index, profile -> profile.number = index + 1 }
-        savedState.activeSlot = savedState.slots
-            .firstOrNull { it.id == activeId }
-            ?.number
-            ?: 0
-        if (startupProfile() == null) savedState.startupProfileId = ""
+        val cleared = synchronized(this) {
+            savedState.slots.firstOrNull { it.number == number }?.deepCopy()
+        }
+        cleared?.let { PlatformLayoutAdapter.delete(it.nativeLayoutName) }
+        synchronized(this) {
+            val activeId = savedState.slots
+                .firstOrNull { it.number == savedState.activeSlot }
+                ?.id
+            if (cleared != null) savedState.slots.removeAll { it.id == cleared.id }
+            savedState.slots.forEachIndexed { index, profile -> profile.number = index + 1 }
+            savedState.activeSlot = savedState.slots
+                .firstOrNull { it.id == activeId }
+                ?.number
+                ?: 0
+            if (savedState.slots.none { it.id == savedState.startupProfileId }) {
+                savedState.startupProfileId = ""
+            }
+        }
     }
 
+    @Synchronized
     fun updateProfiles(updates: List<LayoutProfileUpdate>) {
         require(updates.all { it.displayName.isNotBlank() })
         require(updates.map { it.id }.distinct().size == updates.size)
@@ -256,12 +343,22 @@ internal class LayoutProfileService : PersistentStateComponent<LayoutProfilesSta
     private fun layoutName(id: String): String = "[IDE Layout Profiles] Profile $id"
 
     private fun legacyLayoutName(number: Int): String = "[IDE Layout Profiles] Slot $number"
+
+    private fun rethrowControlFlow(error: Exception) {
+        if (error is ProcessCanceledException || error is ControlFlowException) throw error
+    }
 }
 
 internal class LayoutProfilesState {
     var activeSlot: Int = 0
     var startupProfileId: String = ""
     var slots: MutableList<LayoutProfile> = mutableListOf()
+
+    fun deepCopy(): LayoutProfilesState = LayoutProfilesState().also { copy ->
+        copy.activeSlot = activeSlot
+        copy.startupProfileId = startupProfileId
+        copy.slots = slots.map(LayoutProfile::deepCopy).toMutableList()
+    }
 }
 
 internal class LayoutProfile {
@@ -279,6 +376,23 @@ internal class LayoutProfile {
     var editorTabPlacement: Int = -1
     var wideScreenSupport: Boolean = false
     var displayTopology: String = ""
+
+    fun deepCopy(): LayoutProfile = LayoutProfile().also { copy ->
+        copy.id = id
+        copy.nativeLayoutName = nativeLayoutName
+        copy.number = number
+        copy.displayName = displayName
+        copy.showMainToolbar = showMainToolbar
+        copy.showNewMainToolbar = showNewMainToolbar
+        copy.showMainMenu = showMainMenu
+        copy.showNavigationBar = showNavigationBar
+        copy.navigationBarLocation = navigationBarLocation
+        copy.hideToolStripes = hideToolStripes
+        copy.showStatusBar = showStatusBar
+        copy.editorTabPlacement = editorTabPlacement
+        copy.wideScreenSupport = wideScreenSupport
+        copy.displayTopology = displayTopology
+    }
 
     fun applyChrome() {
         UISettings.getInstance().apply {
