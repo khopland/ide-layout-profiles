@@ -4,6 +4,10 @@
 
 ## Unreleased
 
+### Added
+
+- Added a best-match startup mode and opt-in, debounced automatic switching after display topology changes.
+
 ### Changed
 
 - Declared IntelliJ Platform compatibility with an explicit 2025.3 minimum and an open upper bound.

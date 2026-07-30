@@ -33,6 +33,12 @@ internal data class ApplyOutcome(
     val failures: List<ApplyFailure> = emptyList(),
 )
 
+internal enum class StartupMode {
+    NONE,
+    PROFILE,
+    BEST_MATCH,
+}
+
 internal enum class ImportMode {
     ADD,
     UPDATE_EXISTING,
@@ -68,6 +74,7 @@ internal class LayoutProfileService : PersistentStateComponent<LayoutProfilesSta
         val normalizedState = state.deepCopy()
         val activeNumber = normalizedState.activeSlot
         val startupProfileId = normalizedState.startupProfileId
+        val startupBestMatch = normalizedState.startupBestMatch
         normalizedState.slots = normalizedState.slots
             .filter { it.number > 0 && it.displayName.isNotBlank() }
             .distinctBy { it.number }
@@ -86,9 +93,14 @@ internal class LayoutProfileService : PersistentStateComponent<LayoutProfilesSta
             }
         }
         normalizedState.activeSlot = activeProfile?.let { normalizedState.slots.indexOf(it) + 1 } ?: 0
-        normalizedState.startupProfileId = startupProfileId.takeIf { id ->
-            normalizedState.slots.any { it.id == id }
-        }.orEmpty()
+        normalizedState.startupBestMatch = startupBestMatch
+        normalizedState.startupProfileId = if (startupBestMatch) {
+            ""
+        } else {
+            startupProfileId.takeIf { id ->
+                normalizedState.slots.any { it.id == id }
+            }.orEmpty()
+        }
         savedState = normalizedState
     }
 
@@ -111,12 +123,43 @@ internal class LayoutProfileService : PersistentStateComponent<LayoutProfilesSta
     fun activeSlot(): LayoutProfile? = slot(savedState.activeSlot)
 
     @Synchronized
-    fun startupProfile(): LayoutProfile? = profile(savedState.startupProfileId)
+    fun startupMode(): StartupMode = when {
+        savedState.startupBestMatch -> StartupMode.BEST_MATCH
+        savedState.startupProfileId.isNotBlank() -> StartupMode.PROFILE
+        else -> StartupMode.NONE
+    }
+
+    @Synchronized
+    fun startupProfile(): LayoutProfile? =
+        savedState.startupProfileId.takeIf(String::isNotBlank)?.let(::profile)
+
+    @Synchronized
+    fun startupMatch(topology: DisplayTopology = DisplayTopology.current()): LayoutProfile? =
+        when (startupMode()) {
+            StartupMode.NONE -> null
+            StartupMode.PROFILE -> startupProfile()
+            StartupMode.BEST_MATCH -> bestMatch(topology)
+        }
 
     @Synchronized
     fun setStartupProfile(id: String?) {
         require(id == null || profile(id) != null)
         savedState.startupProfileId = id.orEmpty()
+        savedState.startupBestMatch = false
+    }
+
+    @Synchronized
+    fun setStartupBestMatch() {
+        savedState.startupProfileId = ""
+        savedState.startupBestMatch = true
+    }
+
+    @Synchronized
+    fun autoSwitchBestMatch(): Boolean = savedState.autoSwitchBestMatch
+
+    @Synchronized
+    fun setAutoSwitchBestMatch(enabled: Boolean) {
+        savedState.autoSwitchBestMatch = enabled
     }
 
     @Synchronized
@@ -144,16 +187,18 @@ internal class LayoutProfileService : PersistentStateComponent<LayoutProfilesSta
         importProfiles(imported, ImportMode.REPLACE_ALL).imported
 
     fun importProfiles(imported: ImportedProfiles, mode: ImportMode): ImportResult {
-        val (existingProfiles, activeId, startupProfileId) = synchronized(this) {
-            Triple(
-                savedState.slots.map(LayoutProfile::deepCopy),
-                savedState.slots.firstOrNull { it.number == savedState.activeSlot }?.id,
-                savedState.startupProfileId.takeIf { startupId ->
-                    savedState.slots.any { it.id == startupId }
-                },
-            )
+        val stateSnapshot = synchronized(this) {
+            savedState.deepCopy()
         }
+        val existingProfiles = stateSnapshot.slots.sortedBy(LayoutProfile::number)
         val existingById = existingProfiles.associateBy(LayoutProfile::id)
+        val activeId = existingProfiles.firstOrNull { it.number == stateSnapshot.activeSlot }?.id
+        val startupMode = when {
+            stateSnapshot.startupBestMatch -> StartupMode.BEST_MATCH
+            stateSnapshot.startupProfileId.isNotBlank() -> StartupMode.PROFILE
+            else -> StartupMode.NONE
+        }
+        val startupProfileId = stateSnapshot.startupProfileId.takeIf(existingById::containsKey)
         val selectedImports = when (mode) {
             ImportMode.ADD -> imported.profiles.filter { it.profile.id !in existingById }
             ImportMode.UPDATE_EXISTING -> imported.profiles.filter { it.profile.id in existingById }
@@ -192,6 +237,8 @@ internal class LayoutProfileService : PersistentStateComponent<LayoutProfilesSta
             this.startupProfileId = startupProfileId.takeIf { id ->
                 slots.any { it.id == id }
             }.orEmpty()
+            startupBestMatch = startupMode == StartupMode.BEST_MATCH
+            autoSwitchBestMatch = stateSnapshot.autoSwitchBestMatch
         }
         val newLayouts = selectedImports.associate { importedProfile ->
             importedProfile.profile.nativeLayoutName to importedProfile.nativeLayout
@@ -352,11 +399,15 @@ internal class LayoutProfileService : PersistentStateComponent<LayoutProfilesSta
 internal class LayoutProfilesState {
     var activeSlot: Int = 0
     var startupProfileId: String = ""
+    var startupBestMatch: Boolean = false
+    var autoSwitchBestMatch: Boolean = false
     var slots: MutableList<LayoutProfile> = mutableListOf()
 
     fun deepCopy(): LayoutProfilesState = LayoutProfilesState().also { copy ->
         copy.activeSlot = activeSlot
         copy.startupProfileId = startupProfileId
+        copy.startupBestMatch = startupBestMatch
+        copy.autoSwitchBestMatch = autoSwitchBestMatch
         copy.slots = slots.map(LayoutProfile::deepCopy).toMutableList()
     }
 }

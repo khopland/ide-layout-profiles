@@ -16,6 +16,7 @@ import org.jdom.Element
 import java.awt.Component
 import java.awt.Container
 import javax.swing.JButton
+import javax.swing.JCheckBox
 import javax.swing.SwingConstants
 
 class LayoutProfilePlatformTest : BasePlatformTestCase() {
@@ -81,6 +82,11 @@ class LayoutProfilePlatformTest : BasePlatformTestCase() {
             component.descendants()
                 .filterIsInstance<JButton>()
                 .any { it.text == "Export All…" },
+        )
+        assertTrue(
+            component.descendants()
+                .filterIsInstance<JCheckBox>()
+                .any { it.text.startsWith("Automatically apply the best matching profile") },
         )
         configurable.disposeUIResources()
     }
@@ -218,7 +224,35 @@ class LayoutProfilePlatformTest : BasePlatformTestCase() {
                 .getAction("io.github.khopland.ideLayoutProfiles.startupProfile") as ActionGroup
 
             assertEquals(
-                listOf("None", "Work", "✓ Focus"),
+                listOf("None", "Best Match", "Work", "✓ Focus"),
+                group.getChildren(null).map { it.templatePresentation.text },
+            )
+        } finally {
+            service.loadState(LayoutProfilesState())
+            syncProfileActions()
+        }
+    }
+
+    fun testStartupProfileGroupMarksBestMatchMode() {
+        val service = ApplicationManager.getApplication().getService(LayoutProfileService::class.java)
+
+        try {
+            service.loadState(LayoutProfilesState().apply {
+                startupBestMatch = true
+                slots = mutableListOf(
+                    LayoutProfile().apply {
+                        id = "work"
+                        number = 1
+                        displayName = "Work"
+                    },
+                )
+            })
+
+            val group = ActionManager.getInstance()
+                .getAction("io.github.khopland.ideLayoutProfiles.startupProfile") as ActionGroup
+
+            assertEquals(
+                listOf("None", "✓ Best Match", "Work"),
                 group.getChildren(null).map { it.templatePresentation.text },
             )
         } finally {
