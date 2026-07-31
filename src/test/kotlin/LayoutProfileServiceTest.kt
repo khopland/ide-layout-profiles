@@ -102,6 +102,24 @@ class LayoutProfileServiceTest {
     }
 
     @Test
+    fun `loaded and persisted state are isolated snapshots`() {
+        val source = LayoutProfilesState().apply {
+            slots = mutableListOf(slot(1, "Work").apply { id = "work" })
+        }
+        val service = LayoutProfileService()
+
+        service.loadState(source)
+        source.slots.single().displayName = "Changed outside the service"
+        val persisted = service.state
+        persisted.slots.single().displayName = "Changed persistence snapshot"
+        service.slot(1)?.displayName = "Changed slot snapshot"
+        service.profiles().single().displayName = "Changed profiles snapshot"
+
+        assertEquals("Work", service.slot(1)?.displayName)
+        assertEquals("Work", service.state.slots.single().displayName)
+    }
+
+    @Test
     fun `more than ten profiles can be stored and reordered`() {
         val service = LayoutProfileService()
         service.loadState(LayoutProfilesState().apply {
@@ -173,8 +191,42 @@ class LayoutProfileServiceTest {
         )
         val service = LayoutProfileService().apply { loadState(restored) }
 
+        assertEquals(StartupMode.PROFILE, service.startupMode())
         assertEquals("focus", service.startupProfile()?.id)
         assertEquals(topology, service.profile("focus")?.displayTopology)
+    }
+
+    @Test
+    fun `best match startup mode is exclusive and survives persistence`() {
+        val topology = DisplayTopology(
+            listOf(DisplayMonitor(0, 24, 2560, 1416, 2.0, 2.0)),
+        )
+        val state = LayoutProfilesState().apply {
+            startupProfileId = "ignored"
+            startupBestMatch = true
+            autoSwitchBestMatch = true
+            slots = mutableListOf(slot(1, "Focus").apply {
+                id = "focus"
+                displayTopology = topology.serialize()
+            })
+        }
+        val restored = XmlSerializer.deserialize(
+            XmlSerializer.serialize(state),
+            LayoutProfilesState::class.java,
+        )
+        val service = LayoutProfileService().apply { loadState(restored) }
+
+        assertEquals(StartupMode.BEST_MATCH, service.startupMode())
+        assertEquals("", service.state.startupProfileId)
+        assertEquals("focus", service.startupMatch(topology)?.id)
+        assertTrue(service.autoSwitchBestMatch())
+
+        service.setStartupProfile("focus")
+        assertEquals(StartupMode.PROFILE, service.startupMode())
+        assertFalse(service.state.startupBestMatch)
+
+        service.setStartupProfile(null)
+        assertEquals(StartupMode.NONE, service.startupMode())
     }
 
     @Test

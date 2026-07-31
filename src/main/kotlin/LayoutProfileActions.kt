@@ -8,8 +8,11 @@ import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.diagnostic.ControlFlowException
+import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.options.ShowSettingsUtil
+import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.project.Project
@@ -17,11 +20,16 @@ import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.startup.ProjectActivity
 import com.intellij.openapi.ui.InputValidator
 import com.intellij.openapi.ui.Messages
+import com.intellij.util.concurrency.AppExecutorUtil
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 private const val NOTIFICATION_GROUP = "IDE Layout Profiles"
 private const val PROFILE_ACTION_ID_PREFIX = "io.github.khopland.ideLayoutProfiles.profile."
 private val PLUGIN_ID = PluginId.getId("io.github.khopland.ide-layout-profiles")
 private val profileActionsLock = Any()
+private val LOG = Logger.getInstance("io.github.khopland.LayoutProfileActions")
+private const val BEST_MATCH_CACHE_MILLIS = 2_000L
 
 internal fun profileActionId(profileId: String): String = "$PROFILE_ACTION_ID_PREFIX$profileId"
 
@@ -80,15 +88,32 @@ class UpdateLayoutProfileGroup : ActionGroup(), DumbAware {
 
 class StartupLayoutProfileGroup : ActionGroup(), DumbAware {
     override fun getChildren(event: AnActionEvent?): Array<AnAction> {
+        val startupMode = service().startupMode()
         val startupId = service().startupProfile()?.id
         return buildList {
-            add(SelectStartupLayoutProfileAction(null, "None", startupId == null))
+            add(
+                SelectStartupLayoutProfileAction(
+                    mode = StartupMode.NONE,
+                    profileId = null,
+                    displayName = "None",
+                    selected = startupMode == StartupMode.NONE,
+                ),
+            )
+            add(
+                SelectStartupLayoutProfileAction(
+                    mode = StartupMode.BEST_MATCH,
+                    profileId = null,
+                    displayName = "Best Match",
+                    selected = startupMode == StartupMode.BEST_MATCH,
+                ),
+            )
             service().profiles().forEach { profile ->
                 add(
                     SelectStartupLayoutProfileAction(
-                        profile.id,
-                        profile.displayName,
-                        profile.id == startupId,
+                        mode = StartupMode.PROFILE,
+                        profileId = profile.id,
+                        displayName = profile.displayName,
+                        selected = startupMode == StartupMode.PROFILE && profile.id == startupId,
                     ),
                 )
             }
@@ -101,10 +126,16 @@ class StartupLayoutProfileGroup : ActionGroup(), DumbAware {
 class ProfileActionsStartupActivity : ProjectActivity {
     override suspend fun execute(project: Project) {
         syncProfileActions()
-        service().startupProfile()?.let { profile ->
-            if (service().apply(project, profile.number) == ApplyResult.MISSING_LAYOUT) {
-                notify(project, "notification.missing", profile.number, warning = true)
-            }
+        ApplicationManager.getApplication()
+            .getService(DisplayTopologyAutoSwitchService::class.java)
+            .refresh()
+        service().startupMatch()?.let { profile ->
+            reportApplyOutcome(
+                project = project,
+                profile = profile,
+                outcome = service().apply(project, profile.number),
+                notifySuccess = false,
+            )
         }
     }
 }
@@ -139,8 +170,7 @@ private class UpdateLayoutProfileAction(
 ) : DumbAwareAction(displayName) {
     override fun actionPerformed(event: AnActionEvent) {
         val project = event.project ?: return
-        val updated = service().update(project, profileId) ?: return
-        notify(project, "notification.updated", updated.displayName)
+        updateLayoutProfile(project, profileId)
     }
 
     override fun update(event: AnActionEvent) {
@@ -153,27 +183,43 @@ private class UpdateLayoutProfileAction(
 }
 
 private class SelectStartupLayoutProfileAction(
+    private val mode: StartupMode,
     private val profileId: String?,
     displayName: String,
     selected: Boolean,
 ) : DumbAwareAction(profileActionName(displayName, selected)) {
     override fun actionPerformed(event: AnActionEvent) {
         val project = event.project ?: return
-        service().setStartupProfile(profileId)
-        if (profileId == null) {
-            notify(project, "notification.startupCleared")
-        } else {
-            notify(project, "notification.startupSet", service().profile(profileId)?.displayName ?: return)
+        when (mode) {
+            StartupMode.NONE -> {
+                service().setStartupProfile(null)
+                notify(project, "notification.startupCleared")
+            }
+            StartupMode.BEST_MATCH -> {
+                service().setStartupBestMatch()
+                notify(project, "notification.startupBestMatchSet")
+            }
+            StartupMode.PROFILE -> {
+                val selectedProfile = service().profile(profileId ?: return) ?: return
+                service().setStartupProfile(selectedProfile.id)
+                notify(project, "notification.startupSet", selectedProfile.displayName)
+            }
         }
     }
 
     override fun update(event: AnActionEvent) {
         val profile = profileId?.let(service()::profile)
         event.presentation.isEnabledAndVisible =
-            event.project != null && (profileId == null || profile != null)
+            event.project != null && (mode != StartupMode.PROFILE || profile != null)
         event.presentation.text = profileActionName(
-            profile?.displayName ?: "None",
-            service().startupProfile()?.id == profileId,
+            profile?.displayName ?: if (mode == StartupMode.BEST_MATCH) "Best Match" else "None",
+            when (mode) {
+                StartupMode.NONE -> service().startupMode() == StartupMode.NONE
+                StartupMode.BEST_MATCH -> service().startupMode() == StartupMode.BEST_MATCH
+                StartupMode.PROFILE ->
+                    service().startupMode() == StartupMode.PROFILE &&
+                        service().startupProfile()?.id == profileId
+            },
         )
     }
 
@@ -215,13 +261,15 @@ class SaveNewLayoutProfileAction : DumbAwareAction() {
 class ApplyBestMatchLayoutProfileAction : DumbAwareAction() {
     override fun actionPerformed(event: AnActionEvent) {
         val project = event.project ?: return
-        val profile = service().bestMatch() ?: return
+        val profile = bestMatchCache.refresh() ?: return
         applyLayoutProfile(project, profile.number)
     }
 
     override fun update(event: AnActionEvent) {
-        val profile = event.project?.let { service().bestMatch() }
-        event.presentation.isEnabled = profile != null
+        val hasProject = event.project != null
+        val profile = if (hasProject) bestMatchCache.current() else null
+        event.presentation.isEnabled =
+            hasProject && (!bestMatchCache.isInitialized() || profile != null)
         event.presentation.text = if (profile == null) {
             LayoutProfilesBundle.message("action.bestMatch.none.text")
         } else {
@@ -235,8 +283,8 @@ class ApplyBestMatchLayoutProfileAction : DumbAwareAction() {
 class UpdateActiveLayoutProfileAction : DumbAwareAction() {
     override fun actionPerformed(event: AnActionEvent) {
         val project = event.project ?: return
-        val updated = service().updateActive(project) ?: return
-        notify(project, "notification.updated", updated.displayName)
+        val active = service().activeSlot() ?: return
+        updateLayoutProfile(project, active.id)
     }
 
     override fun update(event: AnActionEvent) {
@@ -257,16 +305,12 @@ class ApplyActiveLayoutProfileToAllProjectsAction : DumbAwareAction() {
         val project = event.project ?: return
         val active = service().activeSlot() ?: return
         val projects = ProjectManager.getInstance().openProjects.filterNot(Project::isDisposed)
-        when (service().apply(projects, active.number)) {
-            ApplyResult.APPLIED -> notify(
-                project,
-                "notification.appliedAll",
-                active.displayName,
-                projects.size,
-            )
-            ApplyResult.EMPTY -> notify(project, "notification.empty", active.number, warning = true)
-            ApplyResult.MISSING_LAYOUT -> notify(project, "notification.missing", active.number, warning = true)
-        }
+        reportApplyOutcome(
+            project = project,
+            profile = active,
+            outcome = service().apply(projects, active.number),
+            allProjects = true,
+        )
     }
 
     override fun update(event: AnActionEvent) {
@@ -300,6 +344,58 @@ class OpenLayoutProfileSettingsAction : DumbAwareAction() {
 private fun service(): LayoutProfileService =
     ApplicationManager.getApplication().getService(LayoutProfileService::class.java)
 
+private val bestMatchCache = BestMatchCache()
+
+private class BestMatchCache {
+    private val refreshPending = AtomicBoolean()
+
+    @Volatile
+    private var profileId: String? = null
+
+    @Volatile
+    private var refreshedAtNanos: Long? = null
+
+    @Volatile
+    private var initialized = false
+
+    fun current(): LayoutProfile? {
+        scheduleRefreshIfStale()
+        return profileId?.let(service()::profile)
+    }
+
+    fun isInitialized(): Boolean = initialized
+
+    fun refresh(): LayoutProfile? {
+        try {
+            val profile = service().bestMatch()
+            profileId = profile?.id
+            initialized = true
+            return profile
+        } finally {
+            refreshedAtNanos = System.nanoTime()
+        }
+    }
+
+    private fun scheduleRefreshIfStale() {
+        val refreshedAt = refreshedAtNanos
+        if (refreshedAt != null) {
+            val cacheAge = System.nanoTime() - refreshedAt
+            if (cacheAge in 0 until TimeUnit.MILLISECONDS.toNanos(BEST_MATCH_CACHE_MILLIS)) return
+        }
+        if (!refreshPending.compareAndSet(false, true)) return
+        AppExecutorUtil.getAppExecutorService().execute {
+            try {
+                refresh()
+            } catch (error: Exception) {
+                rethrowControlFlow(error)
+                LOG.debug("Could not refresh the best matching layout profile", error)
+            } finally {
+                refreshPending.set(false)
+            }
+        }
+    }
+}
+
 internal fun syncProfileActions() = synchronized(profileActionsLock) {
     val actionManager = ActionManager.getInstance()
     val profilesByActionId = service().profiles().associateBy { profileActionId(it.id) }
@@ -321,12 +417,28 @@ internal fun syncProfileActions() = synchronized(profileActionsLock) {
 private fun profileActionName(displayName: String, active: Boolean): String =
     if (active) "✓ $displayName" else displayName
 
-private fun applyLayoutProfile(project: Project, number: Int) {
-    when (service().apply(project, number)) {
-        ApplyResult.APPLIED -> notify(project, "notification.applied", service().slot(number)!!.displayName)
-        ApplyResult.EMPTY -> notify(project, "notification.empty", number, warning = true)
-        ApplyResult.MISSING_LAYOUT -> notify(project, "notification.missing", number, warning = true)
-    }
+internal fun applyLayoutProfile(project: Project, number: Int): ApplyOutcome {
+    val profile = service().slot(number)
+    val outcome = service().apply(project, number)
+    reportApplyOutcome(project, profile, outcome, slotNumber = number)
+    return outcome
+}
+
+internal fun updateLayoutProfile(project: Project, profileId: String): LayoutProfile? {
+    val profile = service().profile(profileId) ?: return null
+    return runProfileOperation(
+        project = project,
+        failureKey = "notification.updateFailed",
+        failureParams = arrayOf(profile.displayName),
+        description = "update layout profile ${profile.id}",
+    ) {
+        service().update(project, profileId)
+    }.fold(
+        onSuccess = { updated ->
+            updated?.also { notify(project, "notification.updated", it.displayName) }
+        },
+        onFailure = { null },
+    )
 }
 
 internal fun saveNewLayoutProfile(project: Project, name: String? = null): LayoutProfile? {
@@ -335,10 +447,92 @@ internal fun saveNewLayoutProfile(project: Project, name: String? = null): Layou
         project,
         LayoutProfilesBundle.message("dialog.save.defaultName", number),
     ) ?: return null
-    service().save(project, number, profileName)
+    val saved = runProfileOperation(
+        project = project,
+        failureKey = "notification.saveFailed",
+        failureParams = arrayOf(profileName),
+        description = "save new layout profile",
+    ) {
+        service().save(project, number, profileName)
+    }
+    if (saved.isFailure) return null
     syncProfileActions()
     notify(project, "notification.saved", profileName)
     return service().slot(number)
+}
+
+internal fun reportApplyOutcome(
+    project: Project,
+    profile: LayoutProfile?,
+    outcome: ApplyOutcome,
+    allProjects: Boolean = false,
+    notifySuccess: Boolean = true,
+    slotNumber: Int = profile?.number ?: 0,
+) {
+    val profileName = profile?.displayName.orEmpty()
+    outcome.failures.forEach { failure ->
+        val projectContext = failure.projectName?.let { " in project $it" }.orEmpty()
+        LOG.warn("Failed to apply layout profile ${profile?.id.orEmpty()}$projectContext", failure.cause)
+    }
+    when (outcome.result) {
+        ApplyResult.APPLIED -> if (notifySuccess) {
+            if (allProjects) {
+                notify(
+                    project,
+                    "notification.appliedAll",
+                    profileName,
+                    outcome.appliedProjects,
+                )
+            } else {
+                notify(project, "notification.applied", profileName)
+            }
+        }
+        ApplyResult.PARTIALLY_APPLIED -> notify(
+            project,
+            "notification.appliedPartial",
+            profileName,
+            outcome.appliedProjects,
+            outcome.failures.size,
+            warning = true,
+        )
+        ApplyResult.EMPTY -> notify(project, "notification.empty", slotNumber, warning = true)
+        ApplyResult.MISSING_LAYOUT -> notify(
+            project,
+            "notification.missing",
+            slotNumber,
+            warning = true,
+        )
+        ApplyResult.FAILED -> notify(
+            project,
+            "notification.applyFailed",
+            profileName,
+            warning = true,
+        )
+        ApplyResult.NO_TARGETS -> notify(
+            project,
+            "notification.noTargetProjects",
+            warning = true,
+        )
+    }
+}
+
+private fun <T> runProfileOperation(
+    project: Project,
+    failureKey: String,
+    failureParams: Array<out Any>,
+    description: String,
+    operation: () -> T,
+): Result<T> = try {
+    Result.success(operation())
+} catch (error: Exception) {
+    rethrowControlFlow(error)
+    LOG.warn("Failed to $description", error)
+    notify(project, failureKey, *failureParams, warning = true)
+    Result.failure(error)
+}
+
+private fun rethrowControlFlow(error: Exception) {
+    if (error is ProcessCanceledException || error is ControlFlowException) throw error
 }
 
 internal fun askForName(project: Project, initialValue: String): String? =
@@ -356,7 +550,7 @@ internal object NonBlankInputValidator : InputValidator {
     override fun canClose(inputString: String): Boolean = checkInput(inputString)
 }
 
-internal fun notify(project: Project, key: String, vararg params: Any, warning: Boolean = false) {
+internal fun notify(project: Project?, key: String, vararg params: Any, warning: Boolean = false) {
     NotificationGroupManager.getInstance()
         .getNotificationGroup(NOTIFICATION_GROUP)
         .createNotification(

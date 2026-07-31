@@ -4,11 +4,26 @@
 
 ## Unreleased
 
+### Added
+
+- Added a best-match startup mode and opt-in, debounced automatic switching after display topology changes.
+
 ### Changed
 
 - Declared IntelliJ Platform compatibility with an explicit 2025.3 minimum and an open upper bound.
 - Expanded cross-release adapter tests to cover native layout save, apply, import, export, and rollback.
 - Configured Plugin Verifier for every supported IntelliJ IDEA release line and WebStorm 2026.2.
+- Moved display-topology matching out of frequent action updates and into a short-lived background cache.
+- Moved layout profile XML reads and writes off the Swing event thread.
+- Registered profile management as application settings, while requiring an active project only for layout capture and apply operations.
+- Clarified which Settings actions take effect immediately and which wait for Apply.
+
+### Fixed
+
+- Layout apply failures now produce actionable notifications and IDE log entries instead of escaping from actions.
+- Applying a profile to every open project now continues after individual project failures and reports partial success.
+- Save and update actions now report platform adapter failures without closing the workflow with an IDE error.
+- Persistent state serialization now uses isolated snapshots, and service operations are synchronized.
 
 ## 0.1.2 - 2026-07-29
 

@@ -16,6 +16,7 @@ import org.jdom.Element
 import java.awt.Component
 import java.awt.Container
 import javax.swing.JButton
+import javax.swing.JCheckBox
 import javax.swing.SwingConstants
 
 class LayoutProfilePlatformTest : BasePlatformTestCase() {
@@ -49,8 +50,8 @@ class LayoutProfilePlatformTest : BasePlatformTestCase() {
 
     fun testSettingsPageIsRegisteredAndBuilds() {
         val configurable = requireNotNull(
-            Configurable.PROJECT_CONFIGURABLE
-                .getExtensions(project)
+            Configurable.APPLICATION_CONFIGURABLE
+                .extensionList
                 .first { it.id == LAYOUT_PROFILE_SETTINGS_ID }
                 .createConfigurable(),
         )
@@ -81,6 +82,11 @@ class LayoutProfilePlatformTest : BasePlatformTestCase() {
             component.descendants()
                 .filterIsInstance<JButton>()
                 .any { it.text == "Export All…" },
+        )
+        assertTrue(
+            component.descendants()
+                .filterIsInstance<JCheckBox>()
+                .any { it.text.startsWith("Automatically apply the best matching profile") },
         )
         configurable.disposeUIResources()
     }
@@ -218,7 +224,35 @@ class LayoutProfilePlatformTest : BasePlatformTestCase() {
                 .getAction("io.github.khopland.ideLayoutProfiles.startupProfile") as ActionGroup
 
             assertEquals(
-                listOf("None", "Work", "✓ Focus"),
+                listOf("None", "Best Match", "Work", "✓ Focus"),
+                group.getChildren(null).map { it.templatePresentation.text },
+            )
+        } finally {
+            service.loadState(LayoutProfilesState())
+            syncProfileActions()
+        }
+    }
+
+    fun testStartupProfileGroupMarksBestMatchMode() {
+        val service = ApplicationManager.getApplication().getService(LayoutProfileService::class.java)
+
+        try {
+            service.loadState(LayoutProfilesState().apply {
+                startupBestMatch = true
+                slots = mutableListOf(
+                    LayoutProfile().apply {
+                        id = "work"
+                        number = 1
+                        displayName = "Work"
+                    },
+                )
+            })
+
+            val group = ActionManager.getInstance()
+                .getAction("io.github.khopland.ideLayoutProfiles.startupProfile") as ActionGroup
+
+            assertEquals(
+                listOf("None", "✓ Best Match", "Work"),
                 group.getChildren(null).map { it.templatePresentation.text },
             )
         } finally {
@@ -334,7 +368,7 @@ class LayoutProfilePlatformTest : BasePlatformTestCase() {
             ui.hideToolStripes = false
             ui.editorTabPlacement = SwingConstants.BOTTOM
             ui.wideScreenSupport = true
-            assertEquals(ApplyResult.APPLIED, service.apply(project, 1))
+            assertEquals(ApplyResult.APPLIED, service.apply(project, 1).result)
             assertFalse(ui.showNewMainToolbar)
             assertFalse(ui.showStatusBar)
             assertTrue(ui.hideToolStripes)
@@ -342,10 +376,12 @@ class LayoutProfilePlatformTest : BasePlatformTestCase() {
             assertFalse(ui.wideScreenSupport)
             assertEquals("Focus", service.activeSlot()?.displayName)
 
-            service.slot(1)!!.editorTabPlacement = -1
+            service.loadState(service.state.apply {
+                slots.single().editorTabPlacement = -1
+            })
             ui.editorTabPlacement = SwingConstants.BOTTOM
             ui.wideScreenSupport = true
-            assertEquals(ApplyResult.APPLIED, service.apply(project, 1))
+            assertEquals(ApplyResult.APPLIED, service.apply(project, 1).result)
             assertEquals(SwingConstants.BOTTOM, ui.editorTabPlacement)
             assertTrue(ui.wideScreenSupport)
         } finally {
@@ -367,7 +403,9 @@ class LayoutProfilePlatformTest : BasePlatformTestCase() {
             val displayTopology = DisplayTopology(
                 listOf(DisplayMonitor(0, 24, 2560, 1416, 2.0, 2.0)),
             ).serialize()
-            service.slot(1)!!.displayTopology = displayTopology
+            service.loadState(service.state.apply {
+                slots.single().displayTopology = displayTopology
+            })
             val xml = JDOMUtil.write(service.exportProfiles())
 
             assertTrue(xml.contains("<ide-layout-profiles version=\"1\">"))
@@ -383,7 +421,7 @@ class LayoutProfilePlatformTest : BasePlatformTestCase() {
             assertFalse(restored.showStatusBar)
             assertEquals(SwingConstants.BOTTOM, restored.editorTabPlacement)
             assertEquals(displayTopology, restored.displayTopology)
-            assertEquals(ApplyResult.APPLIED, service.apply(project, 1))
+            assertEquals(ApplyResult.APPLIED, service.apply(project, 1).result)
         } finally {
             while (service.profiles().isNotEmpty()) service.clear(1)
             original.applyChrome()
@@ -550,7 +588,7 @@ class LayoutProfilePlatformTest : BasePlatformTestCase() {
             assertEquals("First", service.update(project, firstId)?.displayName)
 
             ui.showStatusBar = true
-            assertEquals(ApplyResult.APPLIED, service.apply(project, 1))
+            assertEquals(ApplyResult.APPLIED, service.apply(project, 1).result)
             assertFalse(ui.showStatusBar)
         } finally {
             while (service.profiles().isNotEmpty()) service.clear(1)
@@ -568,7 +606,7 @@ class LayoutProfilePlatformTest : BasePlatformTestCase() {
             }
 
             assertEquals(11, service.profiles().size)
-            assertEquals(ApplyResult.APPLIED, service.apply(project, 11))
+            assertEquals(ApplyResult.APPLIED, service.apply(project, 11).result)
         } finally {
             while (service.profiles().isNotEmpty()) service.clear(1)
         }
@@ -598,10 +636,10 @@ class LayoutProfilePlatformTest : BasePlatformTestCase() {
             PlatformLayoutAdapter.apply(secondFixture.project, markerLayoutName)
 
             assertNotSame(project, secondFixture.project)
-            assertEquals(
-                ApplyResult.APPLIED,
-                service.apply(listOf(project, secondFixture.project), 1),
-            )
+            val outcome = service.apply(listOf(project, secondFixture.project), 1)
+            assertEquals(ApplyResult.APPLIED, outcome.result)
+            assertEquals(2, outcome.appliedProjects)
+            assertTrue(outcome.failures.isEmpty())
             PlatformLayoutAdapter.save(project, firstResultName)
             PlatformLayoutAdapter.save(secondFixture.project, secondResultName)
 
@@ -620,6 +658,50 @@ class LayoutProfilePlatformTest : BasePlatformTestCase() {
             PlatformLayoutAdapter.delete(firstResultName)
             PlatformLayoutAdapter.delete(secondResultName)
             secondFixture.tearDown()
+        }
+    }
+
+    fun testApplyToAllContinuesAfterAProjectFailure() {
+        val service = LayoutProfileService()
+        val failingProject = object : com.intellij.openapi.project.Project by project {
+            override fun <T : Any?> getService(serviceClass: Class<T>): T? {
+                error("Deliberate project service failure")
+            }
+
+            override fun getName(): String = "Failing Project"
+        }
+
+        try {
+            service.save(project, 1, "Everywhere")
+
+            val outcome = service.apply(listOf(failingProject, project), 1)
+
+            assertEquals(ApplyResult.PARTIALLY_APPLIED, outcome.result)
+            assertEquals(1, outcome.appliedProjects)
+            assertEquals(1, outcome.failures.size)
+            assertEquals("Failing Project", outcome.failures.single().projectName)
+            assertTrue(outcome.failures.single().cause.message!!.contains("Deliberate project service failure"))
+            assertEquals("Everywhere", service.activeSlot()?.displayName)
+        } finally {
+            service.clear(1)
+        }
+    }
+
+    fun testApplyWithNoTargetProjectsDoesNotActivateProfile() {
+        val service = LayoutProfileService()
+
+        try {
+            service.save(project, 1, "First")
+            service.save(project, 2, "Second")
+
+            val outcome = service.apply(emptyList(), 1)
+
+            assertEquals(ApplyResult.NO_TARGETS, outcome.result)
+            assertEquals(0, outcome.appliedProjects)
+            assertTrue(outcome.failures.isEmpty())
+            assertEquals("Second", service.activeSlot()?.displayName)
+        } finally {
+            while (service.profiles().isNotEmpty()) service.clear(1)
         }
     }
 
